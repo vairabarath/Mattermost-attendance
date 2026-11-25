@@ -332,3 +332,4 @@ Rules:
    **Answer:** informational only — the day stays 🏢; "½ WFH" is shown on the request and in lists. No monthly WFH limit for now.
 4. **Leave:** is a simple leave mechanism wanted later (so people on leave aren't reminded or listed as absent)? For now only the hook exists. (Phase 3)
 5. **Testcontainers:** OK to add `testcontainers-go` as a test dependency, or use the compose Postgres instead? (Phase 6)
+   **Answer:** no testcontainers — integration tests use `TEST_DATABASE_URL` (throwaway schema per test; skipped if unset), run via `scripts/test-integration.sh` and GitHub Actions. Backups stay on the VPS for now.

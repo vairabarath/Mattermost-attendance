@@ -2,7 +2,7 @@
 
 Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approvals and reports — all through the `/att` slash command. Full spec: [attendance-bot-prompt.md](attendance-bot-prompt.md).
 
-**Status: Phase 5 (WFH).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export, the Monday weekly report and WFH requests with approvals.
+**Status: complete (phase 6: hardening).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export, the Monday weekly report and WFH requests with approvals.
 
 ## How it works
 
@@ -118,17 +118,58 @@ Members are read from each team's Mattermost member list (bots and deactivated u
 
 **Buttons** are HMAC-signed (`HMAC_KEY`), only work for the member they were shown to, and expire after 48 hours.
 
-## Development
+## Development and tests
 
 ```bash
-go test ./...
 go vet ./...
+go test ./...                      # unit tests; integration tests are skipped
+./scripts/test-integration.sh      # everything, incl. integration tests (needs Docker only)
 ```
 
+**Integration tests** (`internal/store/integration_test.go`) run against a real Postgres when `TEST_DATABASE_URL` is set. Each test creates its own throwaway schema, applies the real migrations and drops it afterwards, so they never touch existing data. `scripts/test-integration.sh` starts a temporary Postgres (`docker-compose.test.yml`, tmpfs, its own network) and runs `go test` in a Go container — nothing needs to be installed but Docker.
+
+**GitHub Actions** (`.github/workflows/test.yml`) runs on every push and pull request: gofmt, `go vet`, all tests with the race detector against a Postgres service, and `govulncheck`.
+
 Unit tests cover the hours calculation, week/month ranges, custom status save/restore, button signing, config loading, slash-token verification, the admin check, auto-close math, job idempotency, reminders, workdays/holidays, the daily summary rules, team/user reports, expected hours with holidays, `/att fix` parsing, CSV export (incl. formula escaping) and the weekly report. The `/att fix` database transaction is covered by integration tests in phase 6. Integration tests against a real Postgres come in phase 6.
+
+## Backups
+
+`scripts/backup.sh` writes a compressed `pg_dump` (custom format) to `/var/backups/attendance/attendance-YYYY-MM-DD_HHMM.dump` (directory 700, files 600 — they contain personal data), verifies it with `pg_restore --list`, and deletes backups older than 14 days (`KEEP_DAYS`). It exits non-zero on failure.
+
+Installed on the server as `/etc/cron.d/attendance-backup`:
+
+```
+# Daily attendance DB backup at 21:30 UTC (03:00 IST)
+30 21 * * * root /var/www/mattermost-attendance/scripts/backup.sh >> /var/log/attendance-backup.log 2>&1
+```
+
+**Restore** (takes a safety backup of the current DB first, stops the bot, restores, starts it):
+
+```bash
+cd /var/www/mattermost-attendance
+ls -lh /var/backups/attendance/
+./scripts/restore.sh /var/backups/attendance/attendance-2026-11-25_2130.dump --yes
+```
+
+Backups live on the same VPS, so they protect against mistakes and database corruption but **not** against losing the server. To keep off-server copies, copy `/var/backups/attendance/` elsewhere (e.g. `rsync`/`rclone` in the same cron job).
+
+## Security
+
+Reviewed at the end of phase 6:
+
+- **Slash commands:** per-team token, constant-time compare; a token is only valid with its own team id; HQ and unknown teams are refused.
+- **Buttons and dialogs:** HMAC-SHA256 over all fields (`HMAC_KEY`), with expiry (48 h; WFH buttons 60 days via a signed `exp`). Personal buttons and every dialog are bound to the member they were made for; WFH buttons are bound to a team and the clicker's admin rights are checked.
+- **Admin rights** are always looked up via the Mattermost API (system admin, or team admin via `scheme_admin`/`team_admin`), cached 60 s, never taken from the request.
+- **No published ports:** the bot is only on Docker networks (`mattermost_default` with Mattermost and its Postgres, and its own network with `attendance-db`). The bot's database has no network path from Mattermost's network.
+- **SQL:** all values are bound parameters; the only concatenation is of constant column lists.
+- **Logs:** JSON; only ids, team/job names, timings and errors — never tokens, notes, reasons or message text, and never request bodies.
+- **Secrets** only in `.env` (mode 600, git-ignored, not in git history). The image is distroless and runs as `nonroot`. Request bodies are capped at 64 KB, with server timeouts.
+- **Dependencies:** pgx and robfig/cron only; `govulncheck` reports no known vulnerabilities (also run in CI).
+- **CSV export** escapes values starting with `= + - @` so spreadsheets don't run them.
 
 ## Known limitations
 
 - The system can't verify a member's physical location; WFH/office mode reflects approvals, not location.
 - Leave isn't tracked yet: there is only a hook, so people on leave still get reminders and show as "not checked in".
+- Anything that can reach the bot on the Docker network could send it a slash command with a stolen token, or replay a signed button within its lifetime (the user id in click payloads is trusted). Only Mattermost, its Postgres and the bot are on `mattermost_default` today — keep it that way and never publish port 8080.
 - Mattermost doesn't sign requests to `/mm/*`. Slash commands are verified by per-team token; the service must stay reachable **only** on the internal Docker network — never publish its port.
