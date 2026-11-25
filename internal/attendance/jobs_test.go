@@ -125,6 +125,9 @@ func (f *fakeJobStore) AutoCloseSession(_ context.Context, id int64, out time.Ti
 	return out, true, nil
 }
 func (f *fakeJobStore) HolidaysOn(context.Context, string) ([]Holiday, error) { return f.holidays, nil }
+func (f *fakeJobStore) HolidaysBetween(context.Context, string, string) ([]Holiday, error) {
+	return f.holidays, nil
+}
 func (f *fakeJobStore) InsertAudit(_ context.Context, e AuditEntry) error {
 	f.audits = append(f.audits, e)
 	return nil

@@ -23,6 +23,11 @@ type Session struct {
 	CheckOut *time.Time
 	WorkMode string
 	Breaks   []Break
+
+	// Filled by queries that need them (reports, export).
+	AutoClosed bool
+	InNote     string
+	OutSummary string
 }
 
 // DayKey identifies one member's work in one team on one local calendar day.

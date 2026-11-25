@@ -129,7 +129,7 @@ func (s *Store) CloseOpenSession(ctx context.Context, userID string, out time.Ti
 
 func (s *Store) SessionsOverlapping(ctx context.Context, userID string, from, to time.Time) ([]attendance.Session, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, team_id, check_in, check_out, work_mode
+		SELECT id, team_id, check_in, check_out, work_mode, auto_closed
 		FROM sessions
 		WHERE mm_user_id = $1 AND check_in < $3 AND (check_out IS NULL OR check_out > $2)
 		ORDER BY check_in`, userID, from.UTC(), to.UTC())
@@ -138,7 +138,7 @@ func (s *Store) SessionsOverlapping(ctx context.Context, userID string, from, to
 	}
 	sessions, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (attendance.Session, error) {
 		var s attendance.Session
-		err := r.Scan(&s.ID, &s.TeamID, &s.CheckIn, &s.CheckOut, &s.WorkMode)
+		err := r.Scan(&s.ID, &s.TeamID, &s.CheckIn, &s.CheckOut, &s.WorkMode, &s.AutoClosed)
 		return s, err
 	})
 	if err != nil || len(sessions) == 0 {

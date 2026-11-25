@@ -33,6 +33,7 @@ type WorkingMember struct {
 type Store interface {
 	StatusStore
 	AdminStore
+	ReportStore
 	// MemberRefreshedAt reports when a member's profile was last synced.
 	MemberRefreshedAt(ctx context.Context, userID string) (t time.Time, found bool, err error)
 	UpsertMember(ctx context.Context, userID, username, displayName string) error
@@ -91,6 +92,9 @@ type Service struct {
 	ActionURL string        // where Mattermost posts button clicks
 	Admins    *AdminChecker // nil: nobody is admin
 	People    PeopleAPI
+	Roster    RosterAPI
+	Files     FileSender
+	Workdays  map[time.Weekday]bool
 	Loc       *time.Location
 	Log       *slog.Logger
 	Now       func() time.Time
@@ -136,6 +140,12 @@ func (s *Service) Handle(ctx context.Context, c Command) Reply {
 		r, err = s.member(ctx, c, rest)
 	case "holiday", "holidays":
 		r, err = s.holiday(ctx, c, rest)
+	case "report":
+		r, err = s.report(ctx, c, rest)
+	case "fix":
+		r, err = s.fix(ctx, c, rest)
+	case "export":
+		r, err = s.export(ctx, c, rest)
 	default:
 		return text(fmt.Sprintf("Unknown command `%s`.\n\n%s", sub, helpText(s.isAdmin(ctx, c.TeamID, c.UserID))))
 	}
@@ -425,6 +435,10 @@ func helpText(admin bool) string {
 			"| `/att member @user hours <n>` | Expected hours per day |",
 			"| `/att holiday add YYYY-MM-DD [all] <name>` | Add a holiday (`all` = every org, system admins) |",
 			"| `/att holiday remove <id>` | Remove a holiday |",
+			"| `/att report @user [week\\|month]` | A member's hours in this team |",
+			"| `/att report team [week\\|month]` | Every member of this team |",
+			"| `/att fix @user YYYY-MM-DD in HH:MM out HH:MM <reason>` | Replace a member's day in this team (audited) |",
+			"| `/att export [YYYY-MM]` | CSV of this team's sessions, sent to you by DM |",
 		)
 	}
 	return strings.Join(lines, "\n")

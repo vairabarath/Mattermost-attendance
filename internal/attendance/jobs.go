@@ -35,6 +35,7 @@ type JobStore interface {
 	// AutoCloseSession closes the session at out if it is still open.
 	AutoCloseSession(ctx context.Context, sessionID int64, out time.Time) (closedAt time.Time, closed bool, err error)
 	HolidaysOn(ctx context.Context, day string) ([]Holiday, error)
+	HolidaysBetween(ctx context.Context, fromDay, toDay string) ([]Holiday, error)
 	InsertAudit(ctx context.Context, e AuditEntry) error
 }
 
@@ -80,16 +81,20 @@ type Jobs struct {
 type dailyJob struct {
 	name         string
 	hour, minute int
+	weekday      *time.Weekday // nil = every day
 	run          func(context.Context, time.Time)
 }
 
 func (j *Jobs) daily() []dailyJob {
 	return []dailyJob{
-		{"reminder", 10, 30, j.Reminders},
-		{"still_checked_in", 19, 0, j.StillCheckedIn},
-		{"daily_summary", 20, 0, j.DailySummaries},
+		{"reminder", 10, 30, nil, j.Reminders},
+		{"still_checked_in", 19, 0, nil, j.StillCheckedIn},
+		{"daily_summary", 20, 0, nil, j.DailySummaries},
+		{"weekly_report", 9, 0, &monday, j.WeeklyReports},
 	}
 }
+
+var monday = time.Monday
 
 // catchUpWindow: after a restart, a daily job whose time passed less than
 // this long ago still runs (job_runs stops it from running twice).
@@ -100,7 +105,11 @@ func (j *Jobs) Start(ctx context.Context) func() {
 	c := cron.New(cron.WithLocation(j.Loc))
 	for _, d := range j.daily() {
 		d := d
-		spec := fmt.Sprintf("%d %d * * *", d.minute, d.hour)
+		dow := "*"
+		if d.weekday != nil {
+			dow = strconv.Itoa(int(*d.weekday))
+		}
+		spec := fmt.Sprintf("%d %d * * %s", d.minute, d.hour, dow)
 		if _, err := c.AddFunc(spec, func() { d.run(ctx, j.Now()) }); err != nil {
 			j.Log.Error("schedule job", "job", d.name, "err", err)
 		}
@@ -121,6 +130,9 @@ func (j *Jobs) catchUp(ctx context.Context) {
 	local := now.In(j.Loc)
 	for _, d := range j.daily() {
 		at := time.Date(local.Year(), local.Month(), local.Day(), d.hour, d.minute, 0, 0, j.Loc)
+		if d.weekday != nil && local.Weekday() != *d.weekday {
+			continue
+		}
 		if !now.Before(at) && now.Sub(at) < catchUpWindow {
 			j.Log.Info("catching up missed job", "job", d.name)
 			d.run(ctx, now)
@@ -166,14 +178,29 @@ func IsWorkday(day time.Time, teamID string, workdays map[time.Weekday]bool, hol
 
 // --- rosters ---
 
-// rosters loads each team's filtered members from Mattermost and registers
-// anyone not seen before.
+// rosters loads every configured team's filtered members.
 func (j *Jobs) rosters(ctx context.Context) (map[string][]RosterMember, map[string]MemberSettings, error) {
+	ids := make([]string, len(j.Teams))
+	for i, t := range j.Teams {
+		ids[i] = t.ID
+	}
+	return loadRosters(ctx, j.Roster, j.Store, ids)
+}
+
+// rosterStore is the persistence loadRosters needs.
+type rosterStore interface {
+	SyncMembers(ctx context.Context, users []mattermost.User) error
+	AllMembers(ctx context.Context) (map[string]MemberSettings, error)
+}
+
+// loadRosters reads each team's members from Mattermost, drops bots and
+// deactivated users, registers anyone not seen before, and attaches settings.
+func loadRosters(ctx context.Context, api RosterAPI, st rosterStore, teamIDs []string) (map[string][]RosterMember, map[string]MemberSettings, error) {
 	raw := map[string][]mattermost.User{}
-	for _, t := range j.Teams {
-		users, err := j.Roster.TeamUsers(ctx, t.ID)
+	for _, id := range teamIDs {
+		users, err := api.TeamUsers(ctx, id)
 		if err != nil {
-			return nil, nil, fmt.Errorf("team %s users: %w", t.Name, err)
+			return nil, nil, fmt.Errorf("team %s users: %w", id, err)
 		}
 		var keep []mattermost.User
 		for _, u := range users {
@@ -181,18 +208,18 @@ func (j *Jobs) rosters(ctx context.Context) (map[string][]RosterMember, map[stri
 				keep = append(keep, u)
 			}
 		}
-		if err := j.Store.SyncMembers(ctx, keep); err != nil {
+		if err := st.SyncMembers(ctx, keep); err != nil {
 			return nil, nil, err
 		}
-		raw[t.ID] = keep
+		raw[id] = keep
 	}
-	settings, err := j.Store.AllMembers(ctx)
+	settings, err := st.AllMembers(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	out := map[string][]RosterMember{}
-	for teamID, users := range raw {
-		out[teamID] = FilterRoster(users, settings)
+	for id, users := range raw {
+		out[id] = FilterRoster(users, settings)
 	}
 	return out, settings, nil
 }
@@ -389,4 +416,30 @@ func (j *Jobs) autoCloseOne(ctx context.Context, o OpenSessionInfo, now time.Tim
 		}
 	}
 	return nil
+}
+
+// --- Monday 09:00 weekly report ---
+
+// WeeklyReports posts last week's (Mon–Sun) report to each team's
+// #attendance-admin. It runs even if Monday is a holiday: it's about last week.
+func (j *Jobs) WeeklyReports(ctx context.Context, now time.Time) {
+	local := now.In(j.Loc)
+	thisMonday := time.Date(local.Year(), local.Month(), local.Day()-(int(local.Weekday())+6)%7, 0, 0, 0, 0, j.Loc)
+	p := Period{Name: "last week", FirstDay: thisMonday.AddDate(0, 0, -7), LastDay: thisMonday.AddDate(0, 0, -1)}
+	for _, t := range j.Teams {
+		t := t
+		if t.AdminChannelID == "" {
+			j.Log.Warn("weekly report: no admin channel configured", "team", t.Name)
+			continue
+		}
+		j.once(ctx, "weekly_report", p.FirstDay.Format(DayFormat)+"/"+t.Key, func(ctx context.Context) error {
+			in, err := buildTeamReportInput(ctx, j.Roster, j.Store, t.ID, p, now, j.Loc, j.Workdays)
+			if err != nil {
+				return err
+			}
+			title := fmt.Sprintf("#### 📊 Weekly report — %s — %s – %s", t.Name,
+				p.FirstDay.Format("Mon 2 Jan"), p.LastDay.Format("Mon 2 Jan"))
+			return j.Msg.CreatePost(ctx, t.AdminChannelID, RenderTeamReport(title, BuildTeamReport(in)))
+		})
+	}
 }

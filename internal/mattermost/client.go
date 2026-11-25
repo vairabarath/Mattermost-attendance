@@ -84,13 +84,21 @@ func (e *APIError) Error() string {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader, out any) error {
+	ct := ""
+	if body != nil {
+		ct = "application/json"
+	}
+	return c.doCT(ctx, method, path, ct, body, out)
+}
+
+func (c *Client) doCT(ctx context.Context, method, path, contentType string, body io.Reader, out any) error {
 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

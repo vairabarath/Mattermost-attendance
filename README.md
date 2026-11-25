@@ -2,7 +2,7 @@
 
 Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approvals and reports — all through the `/att` slash command. Full spec: [attendance-bot-prompt.md](attendance-bot-prompt.md).
 
-**Status: Phase 3 (jobs & summaries).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours today|week|month`, scheduled reminders, daily summaries, auto-close of forgotten sessions, holidays and per-member settings.
+**Status: Phase 4 (admin).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export and the Monday weekly report.
 
 ## How it works
 
@@ -73,6 +73,14 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att holiday add YYYY-MM-DD <name>` | Holiday for this team. |
 | `/att holiday add YYYY-MM-DD all <name>` | Holiday for all organizations (system admins only). |
 | `/att holiday remove <id>` | Remove a holiday (ids from `/att holiday list`). |
+| `/att report @user [week\|month]` | That member's hours **in this team** per day (hours, 🏢/🏠, breaks, auto-closed), plus all-orgs total and expected hours. Default `week`. |
+| `/att report team [week\|month]` | One row per member: days, hours in this team, hours across all orgs, expected, WFH days, auto-closed. ⚠️ = all-orgs under 90% of expected. |
+| `/att fix @user YYYY-MM-DD in HH:MM out HH:MM <reason>` | Replace all the member's sessions **in this team** that started that day with one session (no breaks). See rules below. |
+| `/att export [YYYY-MM]` | CSV of this team's sessions for the month (default: this month), sent to you as a DM from the bot. |
+
+**`/att fix` rules:** 24-hour times on the same date (no overnight fixes); no future dates or future `out`; a reason is required; refused if the member still has an open session in this team from that day, or if the new times overlap another of their sessions (another org, or one crossing midnight). Old and new sessions are written to the audit log in the same transaction. Mode is 🏢 until WFH approvals exist (phase 5).
+
+**CSV columns:** `username, display_name, date, check_in, check_out, break_minutes, net_minutes, net_hours, work_mode, auto_closed, in_note, out_summary`. Times are in `TIMEZONE`. Notes starting with `= + - @` are prefixed with `'` so spreadsheets don't run them as formulas.
 
 Member settings are global (one person, one set of settings) and every change is written to the audit log. The target must be a member of the team the command is run in.
 
@@ -85,6 +93,7 @@ Times are in `TIMEZONE`. Daily jobs skip non-workdays (`WORKDAYS`) and holidays 
 | 10:30 | DM tracked members (reminders on) who haven't checked in to **any** team today. One DM per person. |
 | 19:00 | DM everyone still checked in. |
 | 20:00 | Daily summary in each team's `#attendance`: who worked (hours, 🏢/🏠), who is still checked in, who worked for another org instead, who didn't check in. |
+| Mon 09:00 | Weekly report for the previous Mon–Sun in each team's `#attendance-admin` (same table as `/att report team`). Runs even if Monday is a holiday. |
 | Hourly (:05), every day | Auto-close sessions open longer than `MAX_SESSION_HOURS`: check-out is set so net time = the member's expected hours (never later than now). DM to the member, flag in `#attendance-admin`, audit log, custom status restored. |
 
 Members are read from each team's Mattermost member list (bots and deactivated users excluded) and registered automatically, so people who never used `/att` still show as "not checked in". Each run is recorded in `job_runs`, so a restart never sends anything twice; a daily job missed during a restart still runs if the service is back within 2 hours.
@@ -100,7 +109,7 @@ go test ./...
 go vet ./...
 ```
 
-Unit tests cover the hours calculation, week/month ranges, custom status save/restore, button signing, config loading, slash-token verification, the admin check, auto-close math, job idempotency, reminders, workdays/holidays and the daily summary rules. Integration tests against a real Postgres come in phase 6.
+Unit tests cover the hours calculation, week/month ranges, custom status save/restore, button signing, config loading, slash-token verification, the admin check, auto-close math, job idempotency, reminders, workdays/holidays, the daily summary rules, team/user reports, expected hours with holidays, `/att fix` parsing, CSV export (incl. formula escaping) and the weekly report. The `/att fix` database transaction is covered by integration tests in phase 6. Integration tests against a real Postgres come in phase 6.
 
 ## Known limitations
 
