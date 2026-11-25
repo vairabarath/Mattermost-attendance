@@ -467,6 +467,7 @@ func helpText(admin bool) string {
 			"| `/att fix @user YYYY-MM-DD in HH:MM out HH:MM <reason>` | Replace a member's day in this team (audited) |",
 			"| `/att export [YYYY-MM]` | CSV of this team's sessions, sent to you by DM |",
 			"| `/att wfh pending` | Pending WFH requests (decide with the buttons in #attendance-admin) |",
+			"| `/att wfh all` | Every WFH request in this team: who's WFH today, last 30 days and upcoming |",
 		)
 	}
 	return strings.Join(lines, "\n")

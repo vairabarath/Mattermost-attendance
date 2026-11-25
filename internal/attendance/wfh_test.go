@@ -230,3 +230,28 @@ func TestPendingWFHReminderListsTomorrowOnce(t *testing.T) {
 		t.Errorf("wrong list:\n%s", p)
 	}
 }
+
+func TestWFHAllTable(t *testing.T) {
+	now := istAt(2026, 11, 25, 11, 0)
+	at := istAt(2026, 11, 24, 16, 0)
+	rs := []WFHRequest{
+		{ID: 1, Username: "priya", Start: "2026-11-24", End: "2026-11-26", Status: WFHApproved, DecidedByName: "barath", DecidedAt: &at, Reason: "plumber"},
+		{ID: 2, Username: "raj", Start: "2026-11-25", End: "2026-11-25", HalfDay: true, Status: WFHApproved, DecidedByName: "barath", Reason: "doctor"},
+		{ID: 3, Username: "kiran", Start: "2026-11-25", End: "2026-11-25", Status: WFHRejected, DecidedByName: "madmap", Note: "client demo", Reason: "x"},
+		{ID: 4, Username: "jana", Start: "2026-11-26", End: "2026-11-26", Status: WFHPending, Reason: "y"},
+	}
+	out := WFHAllTable("InkYank", rs, now, ist)
+	for _, want := range []string{
+		"🏠 **WFH today:** @priya, @raj (½)",
+		"| 1 | @priya | Tue 24 Nov – Thu 26 Nov (3 days) | ✅ approved | @barath | plumber |",
+		"| 3 | @kiran | Wed 25 Nov (full day) | ❌ rejected | @madmap: client demo | x |",
+		"| 4 | @jana | Thu 26 Nov (full day) | ⏳ pending |  | y |",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "@kiran,") {
+		t.Error("rejected request counted as WFH today")
+	}
+}

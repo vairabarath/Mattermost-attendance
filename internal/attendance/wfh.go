@@ -52,6 +52,8 @@ type WFHStore interface {
 	GetWFH(ctx context.Context, id int64) (*WFHRequest, error)
 	SetWFHAdminPost(ctx context.Context, id int64, postID string) error
 	ListWFH(ctx context.Context, userID, teamID string, limit int) ([]WFHRequest, error)
+	// ListTeamWFH lists the team's requests (any status) ending on or after fromDay.
+	ListTeamWFH(ctx context.Context, teamID, fromDay string, limit int) ([]WFHRequest, error)
 	// PendingWFH lists the team's pending requests; coveringDay ("" = any)
 	// keeps only those that include that day.
 	PendingWFH(ctx context.Context, teamID, coveringDay string) ([]WFHRequest, error)
@@ -224,7 +226,8 @@ const wfhUsage = "Usage:\n" +
 	"- `/att wfh` — request work from home (opens a form)\n" +
 	"- `/att wfh list` — your requests in this team\n" +
 	"- `/att wfh cancel <id>` — cancel a pending request, or an approved one that hasn't started\n" +
-	"- `/att wfh pending` — pending requests for this team (admins)"
+	"- `/att wfh pending` — pending requests for this team (admins)\n" +
+	"- `/att wfh all` — every request in this team from the last 30 days and upcoming (admins)"
 
 func (s *Service) wfh(ctx context.Context, c Command, args string) (Reply, error) {
 	sub, rest := splitFirst(args)
@@ -237,6 +240,8 @@ func (s *Service) wfh(ctx context.Context, c Command, args string) (Reply, error
 		return s.wfhCancel(ctx, c, rest)
 	case "pending":
 		return s.wfhPending(ctx, c)
+	case "all":
+		return s.wfhAll(ctx, c)
 	}
 	return text(wfhUsage), nil
 }
@@ -571,6 +576,61 @@ func (s *Service) wfhPending(ctx context.Context, c Command) (Reply, error) {
 		return Reply{}, err
 	}
 	return text(s.pendingTable("#### Pending WFH requests — "+s.Teams.TeamName(c.TeamID), rs)), nil
+}
+
+// wfhAllDays: how far back /att wfh all looks (by end date).
+const wfhAllDays = 30
+
+func (s *Service) wfhAll(ctx context.Context, c Command) (Reply, error) {
+	if r, err := s.requireAdmin(ctx, c.TeamID, c.UserID); r != nil || err != nil {
+		return deref(r), err
+	}
+	now := s.Now().In(s.Loc)
+	from := now.AddDate(0, 0, -wfhAllDays).Format(DayFormat)
+	rs, err := s.Store.ListTeamWFH(ctx, c.TeamID, from, 100)
+	if err != nil {
+		return Reply{}, err
+	}
+	return text(WFHAllTable(s.Teams.TeamName(c.TeamID), rs, now, s.Loc)), nil
+}
+
+// WFHAllTable renders a team's requests: who is WFH today first, then by date.
+func WFHAllTable(team string, rs []WFHRequest, now time.Time, loc *time.Location) string {
+	today := now.In(loc).Format(DayFormat)
+	var b strings.Builder
+	fmt.Fprintf(&b, "#### WFH requests — %s (last %d days and upcoming)\n", team, wfhAllDays)
+	if len(rs) == 0 {
+		b.WriteString("None.")
+		return b.String()
+	}
+	var wfhToday []string
+	for _, r := range rs {
+		if r.Status == WFHApproved && r.Start <= today && today <= r.End {
+			who := "@" + r.Username
+			if r.HalfDay {
+				who += " (½)"
+			}
+			wfhToday = append(wfhToday, who)
+		}
+	}
+	if len(wfhToday) > 0 {
+		fmt.Fprintf(&b, "🏠 **WFH today:** %s\n\n", strings.Join(wfhToday, ", "))
+	} else {
+		b.WriteString("🏠 Nobody is approved for WFH today.\n\n")
+	}
+	b.WriteString("| # | Member | Dates | Status | Decided by | Reason |\n|---|---|---|---|---|---|\n")
+	for _, r := range rs {
+		by := ""
+		if r.DecidedByName != "" {
+			by = "@" + r.DecidedByName
+			if r.Status == WFHRejected && r.Note != "" {
+				by += ": " + r.Note
+			}
+		}
+		fmt.Fprintf(&b, "| %d | @%s | %s | %s %s | %s | %s |\n", r.ID, r.Username, wfhDatesIn(r, loc),
+			statusIcon(r.Status), r.Status, by, strings.ReplaceAll(r.Reason, "\n", " "))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (s *Service) pendingTable(title string, rs []WFHRequest) string {

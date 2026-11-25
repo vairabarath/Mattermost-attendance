@@ -94,6 +94,16 @@ func (s *Store) ListWFH(ctx context.Context, userID, teamID string, limit int) (
 		userID, teamID, limit))
 }
 
+func (s *Store) ListTeamWFH(ctx context.Context, teamID, fromDay string, limit int) ([]attendance.WFHRequest, error) {
+	from, err := dateParam(fromDay)
+	if err != nil {
+		return nil, err
+	}
+	return collectWFH(s.Pool.Query(ctx, `SELECT `+wfhCols+wfhFrom+`
+		WHERE w.team_id = $1 AND w.end_date >= $2
+		ORDER BY w.start_date, w.id LIMIT $3`, teamID, from, limit))
+}
+
 func (s *Store) PendingWFH(ctx context.Context, teamID, coveringDay string) ([]attendance.WFHRequest, error) {
 	if coveringDay == "" {
 		return collectWFH(s.Pool.Query(ctx, `SELECT `+wfhCols+wfhFrom+`

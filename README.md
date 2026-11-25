@@ -80,6 +80,7 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att report team [week\|month]` | One row per member: days, hours in this team, hours across all orgs, expected, WFH days, auto-closed. ⚠️ = all-orgs under 90% of expected. Expected counts workdays from the day the bot first saw the member, up to yesterday. |
 | `/att fix @user YYYY-MM-DD in HH:MM out HH:MM <reason>` | Replace all the member's sessions **in this team** that started that day with one session (no breaks). See rules below. |
 | `/att wfh pending` | Pending WFH requests for this team. |
+| `/att wfh all` | Every WFH request in this team from the last 30 days and upcoming (any status), with who is WFH today. |
 | `/att export [YYYY-MM]` | CSV of this team's sessions for the month (default: this month), sent to you as a DM from the bot. |
 
 ### WFH flow
