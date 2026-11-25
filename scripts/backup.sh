@@ -24,7 +24,8 @@ trap 'rm -f "$tmp"' EXIT
 log() { echo "$(date -Is) $*"; }
 
 log "backup start → $file"
-docker compose exec -T attendance-db pg_dump -U attendance -d attendance -Fc -Z 6 > "$tmp"
+# </dev/null: exec reads stdin, which would swallow a script piped into bash.
+docker compose exec -T attendance-db pg_dump -U attendance -d attendance -Fc -Z 6 < /dev/null > "$tmp"
 
 # Verify: non-empty and pg_restore can read its table of contents.
 if [ ! -s "$tmp" ]; then
