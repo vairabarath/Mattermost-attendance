@@ -1,0 +1,43 @@
+services:
+  attendance:
+    build: .
+    image: mattermost-attendance:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://attendance:${POSTGRES_PASSWORD}@attendance-db:5432/attendance?sslmode=disable
+    depends_on:
+      attendance-db:
+        condition: service_healthy
+    # No published ports: Mattermost reaches it as http://attendance:8080
+    # over the shared Docker network.
+    networks:
+      default:
+      mattermost:
+        aliases: [attendance]
+
+  attendance-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: attendance
+      POSTGRES_DB: attendance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - attendance-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attendance -d attendance"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      default:
+
+networks:
+  default:
+  mattermost:
+    external: true
+    name: ${MM_DOCKER_NETWORK:-mattermost}
+
+volumes:
+  attendance-db-data:
