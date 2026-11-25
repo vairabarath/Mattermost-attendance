@@ -3,6 +3,7 @@
 package mattermost
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -109,8 +110,41 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ou
 	return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out)
 }
 
-// CommandResponse is the JSON reply to a slash command.
-type CommandResponse struct {
-	ResponseType string `json:"response_type"` // "ephemeral" or "in_channel"
-	Text         string `json:"text"`
+// User props hold the custom status as a JSON string.
+type userWithProps struct {
+	Props map[string]string `json:"props"`
+}
+
+// GetCustomStatus reads a user's current custom status (nil if none).
+func (c *Client) GetCustomStatus(ctx context.Context, userID string) (*CustomStatus, error) {
+	var u userWithProps
+	if err := c.do(ctx, http.MethodGet, "/api/v4/users/"+url.PathEscape(userID), nil, &u); err != nil {
+		return nil, err
+	}
+	raw := u.Props["customStatus"]
+	if raw == "" {
+		return nil, nil
+	}
+	var cs CustomStatus
+	if err := json.Unmarshal([]byte(raw), &cs); err != nil {
+		return nil, fmt.Errorf("parse customStatus: %w", err)
+	}
+	if cs.IsEmpty() {
+		return nil, nil
+	}
+	return &cs, nil
+}
+
+// SetCustomStatus sets PUT /api/v4/users/{id}/status/custom.
+func (c *Client) SetCustomStatus(ctx context.Context, userID string, cs CustomStatus) error {
+	body, err := json.Marshal(cs)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPut, "/api/v4/users/"+url.PathEscape(userID)+"/status/custom", bytes.NewReader(body), nil)
+}
+
+// ClearCustomStatus removes a user's custom status.
+func (c *Client) ClearCustomStatus(ctx context.Context, userID string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v4/users/"+url.PathEscape(userID)+"/status/custom", nil, nil)
 }

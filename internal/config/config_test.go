@@ -14,6 +14,7 @@ func base() map[string]string {
 		"MM_URL":                       "http://mattermost:8065/",
 		"MM_BOT_TOKEN":                 "bot",
 		"DATABASE_URL":                 "postgres://x",
+		"HMAC_KEY":                     "0123456789abcdef0123456789abcdef",
 		"TEAMS":                        "inkyank, seechanlabs",
 		"TEAM_INKYANK_ID":              "teamink",
 		"TEAM_INKYANK_NAME":            "InkYank",

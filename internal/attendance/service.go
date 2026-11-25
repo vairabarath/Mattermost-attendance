@@ -5,32 +5,48 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
+
+	"github.com/vairabarath/Mattermost-attendance/internal/mattermost"
 )
 
 // Errors returned by Store implementations.
 var (
 	ErrAlreadyCheckedIn = errors.New("already checked in")
 	ErrNotCheckedIn     = errors.New("not checked in")
+	ErrAlreadyOnBreak   = errors.New("already on break")
+	ErrNotOnBreak       = errors.New("not on break")
 )
+
+// WorkingMember is one row of /att status.
+type WorkingMember struct {
+	UserID      string
+	Username    string
+	DisplayName string
+	CheckIn     time.Time
+	WorkMode    string
+	BreakSince  *time.Time
+}
 
 // Store is the persistence the service needs (implemented by internal/store).
 type Store interface {
+	StatusStore
 	// MemberRefreshedAt reports when a member's profile was last synced.
 	MemberRefreshedAt(ctx context.Context, userID string) (t time.Time, found bool, err error)
 	UpsertMember(ctx context.Context, userID, username, displayName string) error
 	// InsertSession returns ErrAlreadyCheckedIn if the user has any open session.
 	InsertSession(ctx context.Context, userID, teamID string, checkIn time.Time, mode, note string) (int64, error)
-	// OpenSession returns the user's open session, or nil.
+	// OpenSession returns the user's open session with its breaks, or nil.
 	OpenSession(ctx context.Context, userID string) (*Session, error)
 	// CloseOpenSession closes the open session (and any open break) at out.
-	// Returns ErrNotCheckedIn if there is none.
 	CloseOpenSession(ctx context.Context, userID string, out time.Time, summary string) (*Session, error)
-	// SessionsOverlapping returns the user's sessions (with breaks) that
-	// overlap [from, to).
+	// StartBreak / EndBreak return ErrNotCheckedIn, ErrAlreadyOnBreak, ErrNotOnBreak.
+	StartBreak(ctx context.Context, userID string, at time.Time) (*Session, error)
+	EndBreak(ctx context.Context, userID string, at time.Time) (*Session, error)
+	// SessionsOverlapping returns the user's sessions (with breaks) that overlap [from, to).
 	SessionsOverlapping(ctx context.Context, userID string, from, to time.Time) ([]Session, error)
+	TeamOpenSessions(ctx context.Context, teamID string) ([]WorkingMember, error)
 }
 
 // Directory looks up Mattermost user profiles.
@@ -43,6 +59,11 @@ type Teams interface {
 	TeamName(teamID string) string
 }
 
+// Signer signs button contexts.
+type Signer interface {
+	Sign(fields map[string]string) map[string]string
+}
+
 // Command is a verified slash command invocation.
 type Command struct {
 	TeamID   string
@@ -51,14 +72,25 @@ type Command struct {
 	Text     string // everything after "/att"
 }
 
-// Service implements the /att commands.
+// Reply is an ephemeral reply, optionally with buttons.
+type Reply struct {
+	Text        string
+	Attachments []mattermost.Attachment
+}
+
+func text(s string) Reply { return Reply{Text: s} }
+
+// Service implements the /att commands and button clicks.
 type Service struct {
 	Store     Store
 	Directory Directory
 	Teams     Teams
+	Status    *StatusUpdater // nil disables custom status updates
+	Signer    Signer
+	ActionURL string // where Mattermost posts button clicks
 	Loc       *time.Location
 	Log       *slog.Logger
-	Now       func() time.Time // overridable for tests
+	Now       func() time.Time
 }
 
 const (
@@ -67,166 +99,261 @@ const (
 	genericErrorMsg = "⚠️ Something went wrong. Please try again, or tell an admin if it keeps happening."
 )
 
-// Handle routes a command and returns the ephemeral reply text.
-func (s *Service) Handle(ctx context.Context, c Command) string {
+// Handle routes a slash command and returns the ephemeral reply.
+func (s *Service) Handle(ctx context.Context, c Command) Reply {
 	sub, rest := splitFirst(c.Text)
 	log := s.Log.With("team_id", c.TeamID, "user_id", c.UserID, "sub", sub)
 
 	if sub == "" || sub == "help" {
-		return helpText()
+		return text(helpText())
 	}
-
-	if err := s.ensureMember(ctx, c); err != nil {
+	if err := s.ensureMember(ctx, c.UserID, c.UserName); err != nil {
 		log.Error("register member", "err", err)
-		return genericErrorMsg
+		return text(genericErrorMsg)
 	}
 
 	var (
-		reply string
-		err   error
+		r   Reply
+		err error
 	)
 	switch sub {
 	case "in":
-		reply, err = s.checkIn(ctx, c, rest)
+		r, err = s.checkIn(ctx, c, rest)
 	case "out":
-		reply, err = s.checkOut(ctx, c, rest)
+		r, err = s.checkOut(ctx, c.UserID, rest)
+	case "break":
+		r, err = s.startBreak(ctx, c.UserID)
+	case "back":
+		r, err = s.endBreak(ctx, c.UserID)
+	case "status":
+		r, err = s.teamStatus(ctx, c.TeamID)
 	case "hours":
-		reply, err = s.hours(ctx, c, rest)
+		r, err = s.hours(ctx, c.UserID, rest)
 	default:
-		return fmt.Sprintf("Unknown command `%s`.\n\n%s", sub, helpText())
+		return text(fmt.Sprintf("Unknown command `%s`.\n\n%s", sub, helpText()))
 	}
 	if err != nil {
 		log.Error("command failed", "err", err)
-		return genericErrorMsg
+		return text(genericErrorMsg)
 	}
 	log.Info("command ok")
-	return reply
+	return r
+}
+
+// Button actions carried in signed button contexts.
+const (
+	ActBreak = "break"
+	ActBack  = "back"
+	ActOut   = "out"
+)
+
+// HandleButton runs a verified button click for userID.
+func (s *Service) HandleButton(ctx context.Context, action, userID string) Reply {
+	log := s.Log.With("user_id", userID, "button", action)
+	var (
+		r   Reply
+		err error
+	)
+	switch action {
+	case ActBreak:
+		r, err = s.startBreak(ctx, userID)
+	case ActBack:
+		r, err = s.endBreak(ctx, userID)
+	case ActOut:
+		r, err = s.checkOut(ctx, userID, "")
+	default:
+		return text("Unknown button.")
+	}
+	if err != nil {
+		log.Error("button failed", "err", err)
+		return text(genericErrorMsg)
+	}
+	log.Info("button ok")
+	return r
 }
 
 // ensureMember registers the user on first use and refreshes their profile
 // at most once a day. Keyed on user id, never username.
-func (s *Service) ensureMember(ctx context.Context, c Command) error {
-	refreshed, found, err := s.Store.MemberRefreshedAt(ctx, c.UserID)
+func (s *Service) ensureMember(ctx context.Context, userID, fallbackName string) error {
+	refreshed, found, err := s.Store.MemberRefreshedAt(ctx, userID)
 	if err != nil {
 		return err
 	}
 	if found && s.Now().Sub(refreshed) < profileMaxAge {
 		return nil
 	}
-	username, display, err := s.Directory.UserProfile(ctx, c.UserID)
+	username, display, err := s.Directory.UserProfile(ctx, userID)
 	if err != nil {
-		s.Log.Warn("profile fetch failed; using slash payload", "user_id", c.UserID, "err", err)
+		s.Log.Warn("profile fetch failed; using slash payload", "user_id", userID, "err", err)
 		if found {
 			return nil // keep the stored profile, retry next time
 		}
-		username, display = c.UserName, ""
+		username, display = fallbackName, ""
 	}
-	return s.Store.UpsertMember(ctx, c.UserID, username, display)
+	return s.Store.UpsertMember(ctx, userID, username, display)
 }
 
-func (s *Service) checkIn(ctx context.Context, c Command, note string) (string, error) {
+func (s *Service) checkIn(ctx context.Context, c Command, note string) (Reply, error) {
 	now := s.Now()
 	note = truncate(note, maxNoteLen)
 	// Work mode is always office until WFH approvals exist (phase 5).
-	_, err := s.Store.InsertSession(ctx, c.UserID, c.TeamID, now, "office", note)
+	mode := "office"
+	_, err := s.Store.InsertSession(ctx, c.UserID, c.TeamID, now, mode, note)
 	if errors.Is(err, ErrAlreadyCheckedIn) {
 		open, oerr := s.Store.OpenSession(ctx, c.UserID)
 		if oerr != nil || open == nil {
-			return "You're already checked in.", oerr
+			return text("You're already checked in."), oerr
 		}
-		return fmt.Sprintf("You're already checked in to **%s** since %s. Use `/att out` first.",
-			s.Teams.TeamName(open.TeamID), s.fmtSince(open.CheckIn, now)), nil
+		r := s.withButtons(fmt.Sprintf("You're already checked in to **%s** since %s. Use `/att out` first.",
+			s.Teams.TeamName(open.TeamID), s.fmtSince(open.CheckIn, now)), c.UserID, onBreak(open))
+		return r, nil
 	}
 	if err != nil {
-		return "", err
+		return Reply{}, err
 	}
-	msg := fmt.Sprintf("✅ Checked in to **%s** at %s · 🏢 Office", s.Teams.TeamName(c.TeamID), s.fmtClock(now))
+	s.Status.Enqueue(c.UserID, workingKind(mode), true)
+
+	msg := fmt.Sprintf("✅ Checked in to **%s** at %s · %s", s.Teams.TeamName(c.TeamID), s.fmtClock(now), modeLabel(mode))
 	if note != "" {
 		msg += "\n> " + note
 	}
-	return msg, nil
+	return s.withButtons(msg, c.UserID, false), nil
 }
 
-func (s *Service) checkOut(ctx context.Context, c Command, summary string) (string, error) {
+func (s *Service) checkOut(ctx context.Context, userID, summary string) (Reply, error) {
 	now := s.Now()
-	sess, err := s.Store.CloseOpenSession(ctx, c.UserID, now, truncate(summary, maxNoteLen))
+	sess, err := s.Store.CloseOpenSession(ctx, userID, now, truncate(summary, maxNoteLen))
 	if errors.Is(err, ErrNotCheckedIn) {
-		return "You're not checked in. Use `/att in` to start.", nil
+		return text("You're not checked in. Use `/att in` to start."), nil
 	}
 	if err != nil {
-		return "", err
+		return Reply{}, err
 	}
-	sessionNet := NetByDay([]Session{*sess}, now, s.Loc)
+	s.Status.Enqueue(userID, StatusOff, false)
+
 	var sessionTotal time.Duration
-	for _, v := range sessionNet {
+	for _, v := range NetByDay([]Session{*sess}, now, s.Loc) {
 		sessionTotal += v
 	}
-
-	perTeam, err := s.todayTotals(ctx, c.UserID, now)
+	perTeam, err := s.teamTotals(ctx, userID, now, now)
 	if err != nil {
-		return "", err
+		return Reply{}, err
 	}
-	return fmt.Sprintf("🔴 Checked out of **%s** at %s · this session %s\n%s",
+	return text(fmt.Sprintf("🔴 Checked out of **%s** at %s · this session %s\n%s",
 		s.Teams.TeamName(sess.TeamID), s.fmtClock(now), FormatDuration(sessionTotal),
-		s.todayLine(perTeam)), nil
+		s.todayLine(perTeam))), nil
 }
 
-func (s *Service) hours(ctx context.Context, c Command, arg string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(arg)) {
-	case "", "today":
-	case "week", "month":
-		return "`/att hours week|month` isn't available yet. Use `/att hours today` for now.", nil
-	default:
-		return "Usage: `/att hours [today|week|month]`", nil
-	}
+func (s *Service) startBreak(ctx context.Context, userID string) (Reply, error) {
 	now := s.Now()
-	perTeam, err := s.todayTotals(ctx, c.UserID, now)
-	if err != nil {
-		return "", err
+	sess, err := s.Store.StartBreak(ctx, userID, now)
+	switch {
+	case errors.Is(err, ErrNotCheckedIn):
+		return text("You're not checked in, so you can't take a break. Use `/att in` first."), nil
+	case errors.Is(err, ErrAlreadyOnBreak):
+		return s.withButtons("You're already on a break. Use `/att back` when you return.", userID, true), nil
+	case err != nil:
+		return Reply{}, err
 	}
-	open, err := s.Store.OpenSession(ctx, c.UserID)
-	if err != nil {
-		return "", err
-	}
+	s.Status.Enqueue(userID, StatusOnBreak, false)
+	return s.withButtons(fmt.Sprintf("☕ On break since %s (%s). Use `/att back` when you return.",
+		s.fmtClock(now), s.Teams.TeamName(sess.TeamID)), userID, true), nil
+}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "#### Your hours today (%s)\n", now.In(s.Loc).Format("Mon 2 Jan"))
-	if len(perTeam) == 0 {
-		b.WriteString("No time recorded today.")
-	} else {
-		b.WriteString("| Organization | Hours |\n|---|---|\n")
-		for _, tl := range sortedTeams(perTeam, s.Teams) {
-			fmt.Fprintf(&b, "| %s | %s |\n", tl.name, FormatDuration(tl.d))
+func (s *Service) endBreak(ctx context.Context, userID string) (Reply, error) {
+	now := s.Now()
+	sess, err := s.Store.EndBreak(ctx, userID, now)
+	switch {
+	case errors.Is(err, ErrNotCheckedIn):
+		return text("You're not checked in. Use `/att in` to start."), nil
+	case errors.Is(err, ErrNotOnBreak):
+		return s.withButtons("You're not on a break.", userID, false), nil
+	case err != nil:
+		return Reply{}, err
+	}
+	s.Status.Enqueue(userID, workingKind(sess.WorkMode), false)
+
+	msg := fmt.Sprintf("▶️ Back at %s (%s).", s.fmtClock(now), s.Teams.TeamName(sess.TeamID))
+	if open, err := s.Store.OpenSession(ctx, userID); err == nil && open != nil && len(open.Breaks) > 0 {
+		last := open.Breaks[len(open.Breaks)-1]
+		if last.End != nil {
+			msg = fmt.Sprintf("▶️ Back at %s (%s) · break %s.", s.fmtClock(now),
+				s.Teams.TeamName(sess.TeamID), FormatDuration(last.End.Sub(last.Start)))
 		}
-		fmt.Fprintf(&b, "| **Total** | **%s** |", FormatDuration(sum(perTeam)))
 	}
-	if open != nil {
-		fmt.Fprintf(&b, "\n\n🟢 Currently checked in to **%s** since %s.",
-			s.Teams.TeamName(open.TeamID), s.fmtSince(open.CheckIn, now))
-	}
-	return b.String(), nil
+	return s.withButtons(msg, userID, false), nil
 }
 
-// todayTotals returns net time per team for the current local day.
-func (s *Service) todayTotals(ctx context.Context, userID string, now time.Time) (map[string]time.Duration, error) {
-	start, end := DayBounds(now, s.Loc)
-	sessions, err := s.Store.SessionsOverlapping(ctx, userID, start, end)
+func (s *Service) teamStatus(ctx context.Context, teamID string) (Reply, error) {
+	now := s.Now()
+	rows, err := s.Store.TeamOpenSessions(ctx, teamID)
 	if err != nil {
-		return nil, err
+		return Reply{}, err
 	}
-	return TeamTotalsForDay(NetByDay(sessions, now, s.Loc), now.In(s.Loc).Format(DayFormat)), nil
+	name := s.Teams.TeamName(teamID)
+	if len(rows) == 0 {
+		return text(fmt.Sprintf("Nobody is checked in to **%s** right now.", name)), nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "#### Working now in %s (%d)\n| Member | Since | Mode | Status |\n|---|---|---|---|\n", name, len(rows))
+	for _, w := range rows {
+		state := "🟢 Working"
+		if w.BreakSince != nil {
+			state = "☕ On break since " + s.fmtClock(*w.BreakSince)
+		}
+		fmt.Fprintf(&b, "| @%s | %s | %s | %s |\n", w.Username, s.fmtSince(w.CheckIn, now), modeIcon(w.WorkMode), state)
+	}
+	return text(strings.TrimRight(b.String(), "\n")), nil
 }
 
-func (s *Service) todayLine(perTeam map[string]time.Duration) string {
-	parts := make([]string, 0, len(perTeam))
-	for _, tl := range sortedTeams(perTeam, s.Teams) {
-		parts = append(parts, fmt.Sprintf("%s %s", tl.name, FormatDuration(tl.d)))
+// withButtons attaches the session buttons for the current state.
+func (s *Service) withButtons(msg, userID string, onBreak bool) Reply {
+	return Reply{Text: msg, Attachments: s.sessionButtons(userID, onBreak)}
+}
+
+func (s *Service) sessionButtons(userID string, onBreak bool) []mattermost.Attachment {
+	if s.Signer == nil || s.ActionURL == "" {
+		return nil
 	}
-	line := "Today total: **" + FormatDuration(sum(perTeam)) + "**"
-	if len(parts) > 1 {
-		line += " (" + strings.Join(parts, ", ") + ")"
+	button := func(id, label, style, action string) mattermost.Action {
+		return mattermost.Action{
+			ID: id, Name: label, Style: style,
+			Integration: mattermost.Integration{
+				URL:     s.ActionURL,
+				Context: s.Signer.Sign(map[string]string{"a": action, "u": userID}),
+			},
+		}
 	}
-	return line
+	first := button("attbreak", "☕ Break", "default", ActBreak)
+	if onBreak {
+		first = button("attback", "▶️ Back", "primary", ActBack)
+	}
+	return []mattermost.Attachment{{Actions: []mattermost.Action{first, button("attout", "🔴 Check out", "danger", ActOut)}}}
+}
+
+func onBreak(s *Session) bool {
+	return s != nil && len(s.Breaks) > 0 && s.Breaks[len(s.Breaks)-1].End == nil
+}
+
+func workingKind(mode string) StatusKind {
+	if mode == "wfh" {
+		return StatusWorkingFromHome
+	}
+	return StatusWorking
+}
+
+func modeIcon(mode string) string {
+	if mode == "wfh" {
+		return "🏠"
+	}
+	return "🏢"
+}
+
+func modeLabel(mode string) string {
+	if mode == "wfh" {
+		return "🏠 Working from home"
+	}
+	return "🏢 Office"
 }
 
 func (s *Service) fmtClock(t time.Time) string { return t.In(s.Loc).Format("3:04 PM") }
@@ -237,28 +364,6 @@ func (s *Service) fmtSince(t, now time.Time) string {
 		return s.fmtClock(t)
 	}
 	return t.In(s.Loc).Format("2 Jan, 3:04 PM")
-}
-
-type teamDur struct {
-	name string
-	d    time.Duration
-}
-
-func sortedTeams(m map[string]time.Duration, teams Teams) []teamDur {
-	out := make([]teamDur, 0, len(m))
-	for id, d := range m {
-		out = append(out, teamDur{teams.TeamName(id), d})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
-	return out
-}
-
-func sum(m map[string]time.Duration) time.Duration {
-	var t time.Duration
-	for _, v := range m {
-		t += v
-	}
-	return t
 }
 
 func splitFirst(s string) (string, string) {
@@ -283,7 +388,9 @@ func helpText() string {
 		"|---|---|",
 		"| `/att in [note]` | Check in to this team |",
 		"| `/att out [summary]` | Check out and see today's total |",
-		"| `/att hours [today]` | Your hours today, per organization |",
+		"| `/att break` / `/att back` | Start / end a break (not counted as work) |",
+		"| `/att status` | Who is working in this team right now |",
+		"| `/att hours [today\\|week\\|month]` | Your hours, per day and per organization |",
 		"| `/att help` | This list |",
 	}, "\n")
 }

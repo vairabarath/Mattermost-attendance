@@ -17,9 +17,15 @@ import (
 	"github.com/vairabarath/Mattermost-attendance/internal/mattermost"
 )
 
-// Commander executes a verified slash command and returns reply text.
+// Commander executes verified slash commands and button clicks.
 type Commander interface {
-	Handle(ctx context.Context, c attendance.Command) string
+	Handle(ctx context.Context, c attendance.Command) attendance.Reply
+	HandleButton(ctx context.Context, action, userID string) attendance.Reply
+}
+
+// Verifier checks signed button contexts.
+type Verifier interface {
+	Verify(fields map[string]string) (map[string]string, error)
 }
 
 // Pinger checks a dependency for /healthz.
@@ -32,6 +38,7 @@ type Handler struct {
 	Teams     map[string]config.Team
 	Commander Commander
 	DB        Pinger
+	Verifier  Verifier
 	Log       *slog.Logger
 }
 
@@ -52,6 +59,7 @@ func (h *Handler) notAttendanceTeam() string {
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /mm/command", h.command)
+	mux.HandleFunc("POST /mm/action", h.action)
 	mux.HandleFunc("GET /healthz", h.healthz)
 	return h.logRequests(mux)
 }
@@ -75,7 +83,7 @@ func (h *Handler) command(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		writeReply(w, h.notAttendanceTeam())
+		writeReply(w, attendance.Reply{Text: h.notAttendanceTeam()})
 		return
 	}
 	// The token must belong to THIS team: team A's token with team B's id
@@ -116,9 +124,13 @@ func tokenEqual(a, b string) bool {
 	return a != "" && b != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-func writeReply(w http.ResponseWriter, text string) {
+func writeReply(w http.ResponseWriter, r attendance.Reply) {
+	writeJSON(w, mattermost.CommandResponse{ResponseType: "ephemeral", Text: r.Text, Attachments: r.Attachments})
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(mattermost.CommandResponse{ResponseType: "ephemeral", Text: text})
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {

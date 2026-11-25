@@ -26,7 +26,8 @@ type Config struct {
 	MMURL       string // Mattermost base URL reachable from this container
 	BotToken    string
 	DatabaseURL string
-	HMACKey     string // signs button/dialog payloads (used from phase 2)
+	HMACKey     string // signs button/dialog payloads
+	ServiceURL  string // this service's URL as Mattermost sees it
 	Location    *time.Location
 	Teams       map[string]Team // keyed by Mattermost team id
 }
@@ -63,8 +64,13 @@ func load(getenv func(string) string) (*Config, error) {
 		MMURL:       strings.TrimRight(req("MM_URL"), "/"),
 		BotToken:    req("MM_BOT_TOKEN"),
 		DatabaseURL: req("DATABASE_URL"),
-		HMACKey:     def("HMAC_KEY", ""),
+		HMACKey:     req("HMAC_KEY"),
+		ServiceURL:  strings.TrimRight(def("SERVICE_URL", "http://attendance:8080"), "/"),
 		Teams:       map[string]Team{},
+	}
+
+	if cfg.HMACKey != "" && len(cfg.HMACKey) < 32 {
+		errs = append(errs, errors.New("HMAC_KEY must be at least 32 characters (openssl rand -hex 32)"))
 	}
 
 	tz := def("TIMEZONE", "Asia/Kolkata")

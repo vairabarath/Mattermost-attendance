@@ -2,7 +2,7 @@
 
 Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approvals and reports — all through the `/att` slash command. Full spec: [attendance-bot-prompt.md](attendance-bot-prompt.md).
 
-**Status: Phase 1 (core).** Available now: `/att in`, `/att out`, `/att hours [today]`, `/att help`.
+**Status: Phase 2 (daily use).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours today|week|month`.
 
 ## How it works
 
@@ -23,7 +23,7 @@ Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approval
    - **Integrations → Slash Commands → Add:**
      - Title `Attendance`, trigger word `att`
      - Request URL `http://attendance:8080/mm/command`, method **POST**
-     - Autocomplete on, hint `in | out | hours | help`
+     - Autocomplete on, hint `in | out | break | back | status | hours | help`
      - Copy the **token** → `TEAM_<KEY>_SLASH_TOKEN`
    - Create public channel `attendance` and private channel `attendance-admin` (add the admins). Their ids go in `.env` (needed from phase 3).
    - Add the `attendance` bot to the team and both channels.
@@ -46,18 +46,24 @@ Check health: `docker compose ps` should show `attendance` as *healthy*.
 
 ## Environment variables
 
-See [.env.example](.env.example). Required: `MM_URL`, `MM_BOT_TOKEN`, `POSTGRES_PASSWORD`, `TEAMS` and, for each team key, `TEAM_<KEY>_ID`, `TEAM_<KEY>_NAME`, `TEAM_<KEY>_SLASH_TOKEN`.
+See [.env.example](.env.example). Required: `MM_URL`, `MM_BOT_TOKEN`, `POSTGRES_PASSWORD`, `HMAC_KEY` (≥ 32 chars), `TEAMS` and, for each team key, `TEAM_<KEY>_ID`, `TEAM_<KEY>_NAME`, `TEAM_<KEY>_SLASH_TOKEN`.
 
 Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here" reply. A slash token is only accepted together with its own team's id.
 
-## Commands (phase 1)
+## Commands
 
 | Command | What it does |
 |---|---|
-| `/att in [note]` | Check in to this team. One open session across all teams. |
-| `/att out [summary]` | Check out (from any team); shows this session and today's total. |
-| `/att hours [today]` | Your hours today, per organization. |
+| `/att in [note]` | Check in to this team. One open session across all teams. Reply has ☕ Break / 🔴 Check out buttons. |
+| `/att out [summary]` | Check out (from any team); shows this session and today's total. Closes an open break. |
+| `/att break` / `/att back` | Start / end a break. Breaks are not counted as work. |
+| `/att status` | Who is checked in to this team right now, since when, 🏢/🏠, and who is on break. |
+| `/att hours [today\|week\|month]` | Your hours: per day, total, and per organization. Week = Monday–today, month = 1st–today. |
 | `/att help` | Command list. |
+
+**Custom status:** on check-in the bot sets 🟢 *Working* (🏠 *Working from home* for WFH), ☕ *On break* during breaks. Your own status is saved at check-in and restored at check-out (unless it has expired, or you changed your status yourself meanwhile). Status failures never block check-in/out.
+
+**Buttons** are HMAC-signed (`HMAC_KEY`), only work for the member they were shown to, and expire after 48 hours.
 
 ## Development
 
@@ -66,7 +72,7 @@ go test ./...
 go vet ./...
 ```
 
-Unit tests cover the hours calculation (`internal/attendance/hours_test.go`), config loading and slash-token verification. Integration tests against a real Postgres come in phase 6.
+Unit tests cover the hours calculation, week/month ranges, custom status save/restore, button signing, config loading and slash-token verification. Integration tests against a real Postgres come in phase 6.
 
 ## Known limitations
 

@@ -58,15 +58,23 @@ func run(log *slog.Logger) error {
 	}
 
 	mm := mattermost.NewClient(cfg.MMURL, cfg.BotToken)
+	// Buttons stay valid for 2 days: long enough for any session.
+	signer := mattermost.NewSigner(cfg.HMACKey, 48*time.Hour)
+	statusUpdater := attendance.NewStatusUpdater(mm, db, log)
+	go statusUpdater.Run(ctx)
+
 	svc := &attendance.Service{
 		Store:     db,
 		Directory: mm,
 		Teams:     cfg,
+		Status:    statusUpdater,
+		Signer:    signer,
+		ActionURL: cfg.ServiceURL + "/mm/action",
 		Loc:       cfg.Location,
 		Log:       log,
 		Now:       time.Now,
 	}
-	h := &handlers.Handler{Teams: cfg.Teams, Commander: svc, DB: db, Log: log}
+	h := &handlers.Handler{Teams: cfg.Teams, Commander: svc, DB: db, Verifier: signer, Log: log}
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

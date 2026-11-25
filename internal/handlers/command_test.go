@@ -10,16 +10,27 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vairabarath/Mattermost-attendance/internal/attendance"
 	"github.com/vairabarath/Mattermost-attendance/internal/config"
+	"github.com/vairabarath/Mattermost-attendance/internal/mattermost"
 )
 
-type fakeCommander struct{ got *attendance.Command }
+type fakeCommander struct {
+	got        *attendance.Command
+	gotButton  string
+	buttonUser string
+}
 
-func (f *fakeCommander) Handle(_ context.Context, c attendance.Command) string {
+func (f *fakeCommander) Handle(_ context.Context, c attendance.Command) attendance.Reply {
 	f.got = &c
-	return "handled"
+	return attendance.Reply{Text: "handled"}
+}
+
+func (f *fakeCommander) HandleButton(_ context.Context, action, userID string) attendance.Reply {
+	f.gotButton, f.buttonUser = action, userID
+	return attendance.Reply{Text: "clicked"}
 }
 
 const (
@@ -37,6 +48,7 @@ func newHandler() (*Handler, *fakeCommander) {
 			teamB: {ID: teamB, Name: "Seechanlabs", SlashToken: "token-b"},
 		},
 		Commander: fc,
+		Verifier:  mattermost.NewSigner("test-key", time.Hour),
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, fc
 }
@@ -106,5 +118,47 @@ func TestBadUserIDRejected(t *testing.T) {
 	f.Set("user_id", "../../etc")
 	if rec := post(h.Routes(), f); rec.Code != http.StatusBadRequest || fc.got != nil {
 		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func click(h http.Handler, body map[string]any) (*httptest.ResponseRecorder, map[string]any) {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/mm/action", strings.NewReader(string(b)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec, out
+}
+
+func TestButtonValidClick(t *testing.T) {
+	h, fc := newHandler()
+	ctx := mattermost.NewSigner("test-key", time.Hour).Sign(map[string]string{"a": "break", "u": user})
+	_, out := click(h.Routes(), map[string]any{"user_id": user, "context": ctx})
+	if fc.gotButton != "break" || fc.buttonUser != user {
+		t.Fatalf("button not routed: %+v", fc)
+	}
+	upd, _ := out["update"].(map[string]any)
+	if upd["message"] != "clicked" {
+		t.Errorf("update: %v", out)
+	}
+}
+
+func TestButtonForgedContextRejected(t *testing.T) {
+	h, fc := newHandler()
+	ctx := mattermost.NewSigner("test-key", time.Hour).Sign(map[string]string{"a": "break", "u": user})
+	ctx["a"] = "out"
+	_, out := click(h.Routes(), map[string]any{"user_id": user, "context": ctx})
+	if fc.gotButton != "" || out["ephemeral_text"] == nil {
+		t.Fatalf("forged click accepted: %v", out)
+	}
+}
+
+func TestButtonOtherUsersClickRejected(t *testing.T) {
+	h, fc := newHandler()
+	ctx := mattermost.NewSigner("test-key", time.Hour).Sign(map[string]string{"a": "out", "u": user})
+	_, out := click(h.Routes(), map[string]any{"user_id": "vvvvvvvvvvvvvvvvvvvvvvvvvv", "context": ctx})
+	if fc.gotButton != "" || out["ephemeral_text"] != "This button isn't yours." {
+		t.Fatalf("other user's click accepted: %v", out)
 	}
 }
