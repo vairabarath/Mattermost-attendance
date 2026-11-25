@@ -21,6 +21,7 @@ type fakeCommander struct {
 	got        *attendance.Command
 	gotButton  string
 	buttonUser string
+	gotDialog  *attendance.DialogSubmit
 }
 
 func (f *fakeCommander) Handle(_ context.Context, c attendance.Command) attendance.Reply {
@@ -28,9 +29,14 @@ func (f *fakeCommander) Handle(_ context.Context, c attendance.Command) attendan
 	return attendance.Reply{Text: "handled"}
 }
 
-func (f *fakeCommander) HandleButton(_ context.Context, action, userID string) attendance.Reply {
-	f.gotButton, f.buttonUser = action, userID
+func (f *fakeCommander) HandleButton(_ context.Context, c attendance.Click) attendance.Reply {
+	f.gotButton, f.buttonUser = c.Action, c.UserID
 	return attendance.Reply{Text: "clicked"}
+}
+
+func (f *fakeCommander) HandleDialog(_ context.Context, d attendance.DialogSubmit) attendance.DialogResult {
+	f.gotDialog = &d
+	return attendance.DialogResult{}
 }
 
 const (
@@ -160,5 +166,58 @@ func TestButtonOtherUsersClickRejected(t *testing.T) {
 	_, out := click(h.Routes(), map[string]any{"user_id": "vvvvvvvvvvvvvvvvvvvvvvvvvv", "context": ctx})
 	if fc.gotButton != "" || out["ephemeral_text"] != "This button isn't yours." {
 		t.Fatalf("other user's click accepted: %v", out)
+	}
+}
+
+func submitDialog(h http.Handler, state map[string]string, user string, cancelled bool) map[string]any {
+	st, _ := json.Marshal(state)
+	b, _ := json.Marshal(map[string]any{"state": string(st), "user_id": user, "cancelled": cancelled,
+		"submission": map[string]any{"reason": "x"}})
+	req := httptest.NewRequest(http.MethodPost, "/mm/dialog", strings.NewReader(string(b)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return out
+}
+
+func TestDialogSubmission(t *testing.T) {
+	signer := mattermost.NewSigner("test-key", time.Hour)
+	good := signer.Sign(map[string]string{"k": "wfh", "u": user, "t": teamA})
+
+	h, fc := newHandler()
+	if out := submitDialog(h.Routes(), good, user, false); len(out) != 0 || fc.gotDialog == nil || fc.gotDialog.Fields["t"] != teamA {
+		t.Fatalf("valid: %v %+v", out, fc.gotDialog)
+	}
+
+	h, fc = newHandler()
+	forged := signer.Sign(map[string]string{"k": "wfh", "u": user, "t": teamA})
+	forged["t"] = teamB
+	if out := submitDialog(h.Routes(), forged, user, false); out["error"] == nil || fc.gotDialog != nil {
+		t.Errorf("forged state accepted: %v", out)
+	}
+
+	h, fc = newHandler()
+	if out := submitDialog(h.Routes(), good, "vvvvvvvvvvvvvvvvvvvvvvvvvv", false); out["error"] != "This form isn't yours." || fc.gotDialog != nil {
+		t.Errorf("other user's form accepted: %v", out)
+	}
+
+	h, fc = newHandler()
+	if out := submitDialog(h.Routes(), good, user, true); len(out) != 0 || fc.gotDialog != nil {
+		t.Errorf("cancel should do nothing: %v", out)
+	}
+}
+
+func TestTeamButtonWithoutUserIsRouted(t *testing.T) {
+	h, fc := newHandler()
+	ctx := mattermost.NewSigner("test-key", time.Hour).Sign(map[string]string{"a": "wfh_approve", "w": "1", "t": teamA})
+	click(h.Routes(), map[string]any{"user_id": "vvvvvvvvvvvvvvvvvvvvvvvvvv", "context": ctx})
+	if fc.gotButton != "wfh_approve" {
+		t.Fatal("team button not routed (admin check happens in the service)")
+	}
+	h, fc = newHandler()
+	noScope := mattermost.NewSigner("test-key", time.Hour).Sign(map[string]string{"a": "out"})
+	if _, out := click(h.Routes(), map[string]any{"user_id": user, "context": noScope}); fc.gotButton != "" || out["ephemeral_text"] == nil {
+		t.Fatal("button with neither user nor team accepted")
 	}
 }

@@ -36,6 +36,7 @@ type JobStore interface {
 	AutoCloseSession(ctx context.Context, sessionID int64, out time.Time) (closedAt time.Time, closed bool, err error)
 	HolidaysOn(ctx context.Context, day string) ([]Holiday, error)
 	HolidaysBetween(ctx context.Context, fromDay, toDay string) ([]Holiday, error)
+	PendingWFH(ctx context.Context, teamID, coveringDay string) ([]WFHRequest, error)
 	InsertAudit(ctx context.Context, e AuditEntry) error
 }
 
@@ -88,6 +89,7 @@ type dailyJob struct {
 func (j *Jobs) daily() []dailyJob {
 	return []dailyJob{
 		{"reminder", 10, 30, nil, j.Reminders},
+		{"wfh_pending", 18, 0, nil, j.PendingWFHReminder},
 		{"still_checked_in", 19, 0, nil, j.StillCheckedIn},
 		{"daily_summary", 20, 0, nil, j.DailySummaries},
 		{"weekly_report", 9, 0, &monday, j.WeeklyReports},
@@ -440,6 +442,34 @@ func (j *Jobs) WeeklyReports(ctx context.Context, now time.Time) {
 			title := fmt.Sprintf("#### 📊 Weekly report — %s — %s – %s", t.Name,
 				p.FirstDay.Format("Mon 2 Jan"), p.LastDay.Format("Mon 2 Jan"))
 			return j.Msg.CreatePost(ctx, t.AdminChannelID, RenderTeamReport(title, BuildTeamReport(in)))
+		})
+	}
+}
+
+// --- 18:00 pending WFH requests for tomorrow ---
+
+// PendingWFHReminder lists, in each #attendance-admin, the pending WFH
+// requests that cover tomorrow, so nobody is left waiting overnight.
+func (j *Jobs) PendingWFHReminder(ctx context.Context, now time.Time) {
+	day := j.dayKey(now)
+	holidays, err := j.Store.HolidaysOn(ctx, day)
+	if err != nil {
+		j.Log.Error("wfh pending: holidays", "err", err)
+		return
+	}
+	tomorrow := now.In(j.Loc).AddDate(0, 0, 1)
+	for _, t := range j.Teams {
+		t := t
+		if t.AdminChannelID == "" || !IsWorkday(now.In(j.Loc), t.ID, j.Workdays, holidays) {
+			continue
+		}
+		j.once(ctx, "wfh_pending", day+"/"+t.Key, func(ctx context.Context) error {
+			rs, err := j.Store.PendingWFH(ctx, t.ID, tomorrow.Format(DayFormat))
+			if err != nil || len(rs) == 0 {
+				return err
+			}
+			title := fmt.Sprintf("#### ⏳ WFH requests for tomorrow (%s) still pending", tomorrow.Format("Mon 2 Jan"))
+			return j.Msg.CreatePost(ctx, t.AdminChannelID, pendingTable(title, rs, j.Loc))
 		})
 	}
 }

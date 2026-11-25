@@ -148,11 +148,11 @@ func (s *Service) userReport(ctx context.Context, teamID string, u *mattermost.U
 	}
 	line := "\nAll orgs this period: **" + FormatDuration(all) + "**"
 	if ms == nil || ms.Tracked {
-		perDay := 8.0
+		perDay, since := 8.0, time.Time{}
 		if ms != nil {
-			perDay = ms.ExpectedHours
+			perDay, since = ms.ExpectedHours, ms.Since
 		}
-		line += " · Expected: " + FormatDuration(ExpectedHours(perDay, p, teamID, s.Workdays, holidays))
+		line += " · Expected (through yesterday): " + FormatDuration(expectedFor(perDay, p, teamID, s.Workdays, holidays, since, now, s.Loc))
 	} else {
 		line += " · not tracked"
 	}
@@ -285,11 +285,14 @@ func (s *Service) fix(ctx context.Context, c Command, args string) (Reply, error
 		return Reply{}, err
 	}
 	dayStart, dayEnd := DayBounds(fa.Day, s.Loc)
+	mode, err := s.workMode(ctx, target.ID, c.TeamID, fa.Day)
+	if err != nil {
+		return Reply{}, err
+	}
 	res, err := s.Store.FixDay(ctx, FixRequest{
 		ActorID: c.UserID, UserID: target.ID, TeamID: c.TeamID,
 		DayStart: dayStart, DayEnd: dayEnd, In: fa.In, Out: fa.Out,
-		Mode:   "office", // WFH approvals set this from phase 5
-		Reason: fa.Reason,
+		Mode: mode, Reason: fa.Reason,
 	})
 	switch {
 	case errors.Is(err, ErrOpenSessionOnDay):
@@ -305,7 +308,7 @@ func (s *Service) fix(ctx context.Context, c Command, args string) (Reply, error
 	for _, v := range NetByDay(res.Old, s.Now(), s.Loc) {
 		oldTotal += v
 	}
-	return text(fmt.Sprintf("🛠️ Fixed @%s in **%s** on %s: %s–%s (%s). Replaced %d session(s) totalling %s. Reason: %s",
+	return text(fmt.Sprintf("🛠️ Fixed @%s in **%s** on %s: %s–%s (%s, "+modeIcon(mode)+"). Replaced %d session(s) totalling %s. Reason: %s",
 		target.Username, s.Teams.TeamName(c.TeamID), fa.Day.Format("Mon 2 Jan"),
 		fa.In.Format("3:04 PM"), fa.Out.Format("3:04 PM"), FormatDuration(fa.Out.Sub(fa.In)),
 		len(res.Old), FormatDuration(oldTotal), fa.Reason)), nil

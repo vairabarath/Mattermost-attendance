@@ -20,7 +20,8 @@ import (
 // Commander executes verified slash commands and button clicks.
 type Commander interface {
 	Handle(ctx context.Context, c attendance.Command) attendance.Reply
-	HandleButton(ctx context.Context, action, userID string) attendance.Reply
+	HandleButton(ctx context.Context, c attendance.Click) attendance.Reply
+	HandleDialog(ctx context.Context, d attendance.DialogSubmit) attendance.DialogResult
 }
 
 // Verifier checks signed button contexts.
@@ -60,6 +61,7 @@ func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /mm/command", h.command)
 	mux.HandleFunc("POST /mm/action", h.action)
+	mux.HandleFunc("POST /mm/dialog", h.dialog)
 	mux.HandleFunc("GET /healthz", h.healthz)
 	return h.logRequests(mux)
 }
@@ -101,10 +103,12 @@ func (h *Handler) command(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	reply := h.Commander.Handle(ctx, attendance.Command{
-		TeamID:   teamID,
-		UserID:   userID,
-		UserName: r.PostForm.Get("user_name"),
-		Text:     strings.TrimSpace(r.PostForm.Get("text")),
+		TeamID:    teamID,
+		UserID:    userID,
+		UserName:  r.PostForm.Get("user_name"),
+		ChannelID: r.PostForm.Get("channel_id"),
+		TriggerID: r.PostForm.Get("trigger_id"),
+		Text:      strings.TrimSpace(r.PostForm.Get("text")),
 	})
 	writeReply(w, reply)
 }

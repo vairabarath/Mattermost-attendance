@@ -24,6 +24,8 @@ type MemberSettings struct {
 	RemindersOn   bool    `json:"reminders_on"`
 	Tracked       bool    `json:"tracked"`
 	Active        bool    `json:"-"`
+	// Since is when the bot first saw the member; expected hours start then.
+	Since time.Time `json:"-"`
 }
 
 // MemberUpdate changes the non-nil settings.

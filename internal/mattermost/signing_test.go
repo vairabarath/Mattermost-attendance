@@ -71,3 +71,23 @@ func TestCustomStatusExpired(t *testing.T) {
 		t.Error("future expiry should not be expired")
 	}
 }
+
+func TestSignForOverridesMaxAge(t *testing.T) {
+	s := NewSigner("k", time.Hour)
+	now := time.Unix(1_700_000_000, 0)
+	s.now = func() time.Time { return now }
+	f := s.SignFor(map[string]string{"a": "wfh_approve"}, 10*24*time.Hour)
+	now = now.Add(5 * 24 * time.Hour) // way past maxAge, within ttl
+	if _, err := s.Verify(f); err != nil {
+		t.Fatalf("should still be valid: %v", err)
+	}
+	now = now.Add(6 * 24 * time.Hour)
+	if _, err := s.Verify(f); err == nil {
+		t.Fatal("should have expired")
+	}
+	f2 := s.SignFor(map[string]string{"a": "x"}, time.Hour)
+	f2["exp"] = "9999999999" // extending the expiry breaks the signature
+	if _, err := s.Verify(f2); err == nil {
+		t.Fatal("tampered exp accepted")
+	}
+}

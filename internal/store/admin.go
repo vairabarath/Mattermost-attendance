@@ -12,11 +12,11 @@ import (
 	"github.com/vairabarath/Mattermost-attendance/internal/attendance"
 )
 
-const memberCols = `mm_user_id, username, COALESCE(display_name, ''), expected_hours::float8, reminders_on, tracked, active`
+const memberCols = `mm_user_id, username, COALESCE(display_name, ''), expected_hours::float8, reminders_on, tracked, active, created_at`
 
 func scanMember(r pgx.Row) (attendance.MemberSettings, error) {
 	var m attendance.MemberSettings
-	err := r.Scan(&m.UserID, &m.Username, &m.DisplayName, &m.ExpectedHours, &m.RemindersOn, &m.Tracked, &m.Active)
+	err := r.Scan(&m.UserID, &m.Username, &m.DisplayName, &m.ExpectedHours, &m.RemindersOn, &m.Tracked, &m.Active, &m.Since)
 	return m, err
 }
 

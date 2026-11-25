@@ -22,6 +22,7 @@ type Signer struct {
 const (
 	sigField = "sig"
 	tsField  = "ts"
+	expField = "exp" // optional signed expiry (unix seconds), overrides maxAge
 )
 
 // ErrBadSignature means the payload was tampered with, expired or unsigned.
@@ -44,6 +45,17 @@ func (s *Signer) Sign(fields map[string]string) map[string]string {
 	return out
 }
 
+// SignFor is Sign with an explicit lifetime instead of the default maxAge
+// (e.g. WFH approval buttons that may wait days). The expiry is signed.
+func (s *Signer) SignFor(fields map[string]string, ttl time.Duration) map[string]string {
+	f := make(map[string]string, len(fields)+1)
+	for k, v := range fields {
+		f[k] = v
+	}
+	f[expField] = strconv.FormatInt(s.now().Add(ttl).Unix(), 10)
+	return s.Sign(f)
+}
+
 // Verify checks the signature and age. It returns the fields without "sig".
 func (s *Signer) Verify(fields map[string]string) (map[string]string, error) {
 	sig, ok := fields[sigField]
@@ -58,6 +70,13 @@ func (s *Signer) Verify(fields map[string]string) (map[string]string, error) {
 	}
 	if !hmac.Equal([]byte(sig), []byte(s.mac(rest))) {
 		return nil, ErrBadSignature
+	}
+	if exp, ok := rest[expField]; ok {
+		e, err := strconv.ParseInt(exp, 10, 64)
+		if err != nil || s.now().After(time.Unix(e, 0)) {
+			return nil, ErrBadSignature
+		}
+		return rest, nil
 	}
 	ts, err := strconv.ParseInt(rest[tsField], 10, 64)
 	if err != nil || s.now().Sub(time.Unix(ts, 0)) > s.maxAge {

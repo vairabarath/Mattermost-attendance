@@ -81,6 +81,7 @@ type fakeJobStore struct {
 	closed   map[int64]time.Time
 	audits   []AuditEntry
 	holidays []Holiday
+	wfh      []WFHRequest
 }
 
 func newFakeJobStore() *fakeJobStore {
@@ -125,6 +126,15 @@ func (f *fakeJobStore) AutoCloseSession(_ context.Context, id int64, out time.Ti
 	return out, true, nil
 }
 func (f *fakeJobStore) HolidaysOn(context.Context, string) ([]Holiday, error) { return f.holidays, nil }
+func (f *fakeJobStore) PendingWFH(_ context.Context, teamID, day string) ([]WFHRequest, error) {
+	var out []WFHRequest
+	for _, r := range f.wfh {
+		if r.TeamID == teamID && r.Status == WFHPending && (day == "" || (r.Start <= day && day <= r.End)) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
 func (f *fakeJobStore) HolidaysBetween(context.Context, string, string) ([]Holiday, error) {
 	return f.holidays, nil
 }

@@ -36,6 +36,7 @@ type ActionRequest struct {
 	ChannelID string            `json:"channel_id"`
 	TeamID    string            `json:"team_id"`
 	PostID    string            `json:"post_id"`
+	TriggerID string            `json:"trigger_id"`
 	Context   map[string]string `json:"context"`
 }
 

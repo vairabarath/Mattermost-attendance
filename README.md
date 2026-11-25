@@ -2,7 +2,7 @@
 
 Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approvals and reports — all through the `/att` slash command. Full spec: [attendance-bot-prompt.md](attendance-bot-prompt.md).
 
-**Status: Phase 4 (admin).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export and the Monday weekly report.
+**Status: Phase 5 (WFH).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export, the Monday weekly report and WFH requests with approvals.
 
 ## How it works
 
@@ -23,7 +23,7 @@ Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approval
    - **Integrations → Slash Commands → Add:**
      - Title `Attendance`, trigger word `att`
      - Request URL `http://attendance:8080/mm/command`, method **POST**
-     - Autocomplete on, hint `in | out | break | back | status | hours | holiday | help` (admin commands are listed in `/att help`)
+     - Autocomplete on, hint `in | out | break | back | status | hours | wfh | holiday | help` (admin commands are listed in `/att help`)
      - Copy the **token** → `TEAM_<KEY>_SLASH_TOKEN`
    - Create public channel `attendance` and private channel `attendance-admin` (add the admins). Their ids go in `.env` (needed from phase 3).
    - Add the `attendance` bot to the team and both channels.
@@ -60,6 +60,9 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att status` | Who is checked in to this team right now, since when, 🏢/🏠, and who is on break. |
 | `/att hours [today\|week\|month]` | Your hours: per day, total, and per organization. Week = Monday–today, month = 1st–today. |
 | `/att holiday list` | Upcoming holidays for this team (and all-org ones). |
+| `/att wfh` | Request work from home: opens a form (start date, optional end date, half day, reason). |
+| `/att wfh list` | Your WFH requests in this team and their status. |
+| `/att wfh cancel <id>` | Cancel a pending request, or an approved one that hasn't started. |
 | `/att help` | Command list (admin commands shown to admins only). |
 
 **Admin commands** — for system admins (any team) and team admins (their own team only):
@@ -74,11 +77,22 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att holiday add YYYY-MM-DD all <name>` | Holiday for all organizations (system admins only). |
 | `/att holiday remove <id>` | Remove a holiday (ids from `/att holiday list`). |
 | `/att report @user [week\|month]` | That member's hours **in this team** per day (hours, 🏢/🏠, breaks, auto-closed), plus all-orgs total and expected hours. Default `week`. |
-| `/att report team [week\|month]` | One row per member: days, hours in this team, hours across all orgs, expected, WFH days, auto-closed. ⚠️ = all-orgs under 90% of expected. |
+| `/att report team [week\|month]` | One row per member: days, hours in this team, hours across all orgs, expected, WFH days, auto-closed. ⚠️ = all-orgs under 90% of expected. Expected counts workdays from the day the bot first saw the member, up to yesterday. |
 | `/att fix @user YYYY-MM-DD in HH:MM out HH:MM <reason>` | Replace all the member's sessions **in this team** that started that day with one session (no breaks). See rules below. |
+| `/att wfh pending` | Pending WFH requests for this team. |
 | `/att export [YYYY-MM]` | CSV of this team's sessions for the month (default: this month), sent to you as a DM from the bot. |
 
-**`/att fix` rules:** 24-hour times on the same date (no overnight fixes); no future dates or future `out`; a reason is required; refused if the member still has an open session in this team from that day, or if the new times overlap another of their sessions (another org, or one crossing midnight). Old and new sessions are written to the audit log in the same transaction. Mode is 🏢 until WFH approvals exist (phase 5).
+### WFH flow
+
+1. `/att wfh` opens a form. It's validated on submit (valid dates, end ≥ start, not in the past, at most 31 days, no overlap with your pending/approved requests in this team) and saved as pending.
+2. The request is posted to the team's `#attendance-admin` with **✅ Approve / ❌ Reject** buttons, the reason and the member's approved WFH days this month. ⚡ marks requests for today, or for tomorrow made after 20:00.
+3. Only admins of that team can decide. Two admins clicking at once produce exactly one decision (the other sees "Already approved by …"). Reject asks for a reason. The post is updated with who decided and when; the member gets a DM; the audit log records it.
+4. On an approved **full** day, `/att in` in that team records 🏠 and sets 🏠 *Working from home*; if approved for today while the member is checked in, the open session switches to 🏠. `/att fix` on an approved day also uses 🏠. **Half days are informational** — the day stays 🏢. There is no monthly limit.
+5. Cancelling updates the admin post to "Cancelled by member". At 18:00 on workdays, still-pending requests covering tomorrow are listed in `#attendance-admin`.
+
+WFH buttons stay valid for 60 days (the expiry is part of the signed payload); dialogs submit to `/mm/dialog` with signed state bound to the user.
+
+**`/att fix` rules:** 24-hour times on the same date (no overnight fixes); no future dates or future `out`; a reason is required; refused if the member still has an open session in this team from that day, or if the new times overlap another of their sessions (another org, or one crossing midnight). Old and new sessions are written to the audit log in the same transaction. Mode is 🏠 if the member has an approved full-day WFH request for that date in this team, otherwise 🏢.
 
 **CSV columns:** `username, display_name, date, check_in, check_out, break_minutes, net_minutes, net_hours, work_mode, auto_closed, in_note, out_summary`. Times are in `TIMEZONE`. Notes starting with `= + - @` are prefixed with `'` so spreadsheets don't run them as formulas.
 
@@ -93,6 +107,7 @@ Times are in `TIMEZONE`. Daily jobs skip non-workdays (`WORKDAYS`) and holidays 
 | 10:30 | DM tracked members (reminders on) who haven't checked in to **any** team today. One DM per person. |
 | 19:00 | DM everyone still checked in. |
 | 20:00 | Daily summary in each team's `#attendance`: who worked (hours, 🏢/🏠), who is still checked in, who worked for another org instead, who didn't check in. |
+| 18:00 | Pending WFH requests covering tomorrow, per team, in `#attendance-admin` (only if there are any). |
 | Mon 09:00 | Weekly report for the previous Mon–Sun in each team's `#attendance-admin` (same table as `/att report team`). Runs even if Monday is a holiday. |
 | Hourly (:05), every day | Auto-close sessions open longer than `MAX_SESSION_HOURS`: check-out is set so net time = the member's expected hours (never later than now). DM to the member, flag in `#attendance-admin`, audit log, custom status restored. |
 

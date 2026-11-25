@@ -41,6 +41,35 @@ func ExpectedHours(perDay float64, p Period, teamID string, workdays map[time.We
 	return time.Duration(float64(n) * perDay * float64(time.Hour))
 }
 
+// ExpectedPeriod narrows p for expected hours: it starts no earlier than
+// the day the member was first seen (since) and ends yesterday at the
+// latest, so a day in progress and days before tracking began don't count.
+// ok is false when nothing is left.
+func ExpectedPeriod(p Period, since, now time.Time, loc *time.Location) (Period, bool) {
+	out := p
+	if !since.IsZero() {
+		sinceDay, _ := DayBounds(since, loc)
+		if sinceDay.After(out.FirstDay) {
+			out.FirstDay = sinceDay
+		}
+	}
+	today, _ := DayBounds(now, loc)
+	if yesterday := today.AddDate(0, 0, -1); out.LastDay.After(yesterday) {
+		out.LastDay = yesterday
+	}
+	return out, !out.LastDay.Before(out.FirstDay)
+}
+
+// expectedFor is ExpectedHours over ExpectedPeriod.
+func expectedFor(perDay float64, p Period, teamID string, workdays map[time.Weekday]bool,
+	holidays []Holiday, since, now time.Time, loc *time.Location) time.Duration {
+	ep, ok := ExpectedPeriod(p, since, now, loc)
+	if !ok {
+		return 0
+	}
+	return ExpectedHours(perDay, ep, teamID, workdays, holidays)
+}
+
 // TeamReportInput is everything a team report needs.
 type TeamReportInput struct {
 	TeamID    string
@@ -126,11 +155,11 @@ func BuildTeamReport(in TeamReportInput) []TeamReportRow {
 	out := make([]TeamReportRow, 0, len(rows))
 	for _, r := range rows {
 		if r.HasExpected {
-			perDay := 8.0
+			perDay, since := 8.0, time.Time{}
 			if ms, ok := in.Settings[r.UserID]; ok {
-				perDay = ms.ExpectedHours
+				perDay, since = ms.ExpectedHours, ms.Since
 			}
-			r.Expected = ExpectedHours(perDay, in.Period, in.TeamID, in.Workdays, in.Holidays)
+			r.Expected = expectedFor(perDay, in.Period, in.TeamID, in.Workdays, in.Holidays, since, in.Now, in.Loc)
 		}
 		out = append(out, *r)
 	}
@@ -163,7 +192,7 @@ func RenderTeamReport(title string, rows []TeamReportRow) string {
 		all += r.AllOrgs
 	}
 	fmt.Fprintf(&b, "| **Total** | | **%s** | %s | | | |\n\n", FormatDuration(team), FormatDuration(all))
-	b.WriteString("_Expected = expected hours/day × workdays (minus holidays), compared with **all orgs**. ⚠️ = under 90% of expected. \"—\" = not tracked._")
+	b.WriteString("_Expected = expected hours/day × workdays (minus holidays) from when the member was first seen, up to yesterday; compared with **all orgs**. ⚠️ = under 90% of expected. \"—\" = not tracked._")
 	return b.String()
 }
 

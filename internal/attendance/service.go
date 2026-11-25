@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vairabarath/Mattermost-attendance/internal/config"
 	"github.com/vairabarath/Mattermost-attendance/internal/mattermost"
 )
 
@@ -34,6 +35,7 @@ type Store interface {
 	StatusStore
 	AdminStore
 	ReportStore
+	WFHStore
 	// MemberRefreshedAt reports when a member's profile was last synced.
 	MemberRefreshedAt(ctx context.Context, userID string) (t time.Time, found bool, err error)
 	UpsertMember(ctx context.Context, userID, username, displayName string) error
@@ -64,20 +66,26 @@ type Teams interface {
 // Signer signs button contexts.
 type Signer interface {
 	Sign(fields map[string]string) map[string]string
+	SignFor(fields map[string]string, ttl time.Duration) map[string]string
 }
 
 // Command is a verified slash command invocation.
 type Command struct {
-	TeamID   string
-	UserID   string
-	UserName string
-	Text     string // everything after "/att"
+	TeamID    string
+	UserID    string
+	UserName  string
+	ChannelID string
+	TriggerID string // lets the service open a dialog
+	Text      string // everything after "/att"
 }
 
 // Reply is an ephemeral reply, optionally with buttons.
 type Reply struct {
 	Text        string
 	Attachments []mattermost.Attachment
+	// EphemeralOnly (buttons): show Text privately to the clicker and leave
+	// the clicked post unchanged.
+	EphemeralOnly bool
 }
 
 func text(s string) Reply { return Reply{Text: s} }
@@ -95,6 +103,9 @@ type Service struct {
 	Roster    RosterAPI
 	Files     FileSender
 	Workdays  map[time.Weekday]bool
+	Posts     Poster
+	DialogURL string                 // where Mattermost posts dialog submissions
+	TeamCfg   map[string]config.Team // channel ids per team
 	Loc       *time.Location
 	Log       *slog.Logger
 	Now       func() time.Time
@@ -146,6 +157,8 @@ func (s *Service) Handle(ctx context.Context, c Command) Reply {
 		r, err = s.fix(ctx, c, rest)
 	case "export":
 		r, err = s.export(ctx, c, rest)
+	case "wfh":
+		r, err = s.wfh(ctx, c, rest)
 	default:
 		return text(fmt.Sprintf("Unknown command `%s`.\n\n%s", sub, helpText(s.isAdmin(ctx, c.TeamID, c.UserID))))
 	}
@@ -164,14 +177,17 @@ const (
 	ActOut   = "out"
 )
 
-// HandleButton runs a verified button click for userID.
-func (s *Service) HandleButton(ctx context.Context, action, userID string) Reply {
+// HandleButton runs a verified button click.
+func (s *Service) HandleButton(ctx context.Context, c Click) Reply {
+	userID, action := c.UserID, c.Action
 	log := s.Log.With("user_id", userID, "button", action)
 	var (
 		r   Reply
 		err error
 	)
 	switch action {
+	case ActWFHApprove, ActWFHReject:
+		r, err = s.handleWFHClick(ctx, c)
 	case ActBreak:
 		r, err = s.startBreak(ctx, userID)
 	case ActBack:
@@ -213,9 +229,12 @@ func (s *Service) ensureMember(ctx context.Context, userID, fallbackName string)
 func (s *Service) checkIn(ctx context.Context, c Command, note string) (Reply, error) {
 	now := s.Now()
 	note = truncate(note, maxNoteLen)
-	// Work mode is always office until WFH approvals exist (phase 5).
-	mode := "office"
-	_, err := s.Store.InsertSession(ctx, c.UserID, c.TeamID, now, mode, note)
+	// Members can't choose the mode: an approved full-day WFH request does.
+	mode, err := s.workMode(ctx, c.UserID, c.TeamID, now)
+	if err != nil {
+		return Reply{}, err
+	}
+	_, err = s.Store.InsertSession(ctx, c.UserID, c.TeamID, now, mode, note)
 	if errors.Is(err, ErrAlreadyCheckedIn) {
 		open, oerr := s.Store.OpenSession(ctx, c.UserID)
 		if oerr != nil || open == nil {
@@ -348,6 +367,12 @@ func (s *Service) sessionButtons(userID string, onBreak bool) []mattermost.Attac
 	return []mattermost.Attachment{{Actions: []mattermost.Action{first, button("attout", "🔴 Check out", "danger", ActOut)}}}
 }
 
+// TeamConfig returns the configured team (channels etc.).
+func (s *Service) TeamConfig(teamID string) (config.Team, bool) {
+	t, ok := s.TeamCfg[teamID]
+	return t, ok
+}
+
 func onBreak(s *Session) bool {
 	return s != nil && len(s.Breaks) > 0 && s.Breaks[len(s.Breaks)-1].End == nil
 }
@@ -421,6 +446,8 @@ func helpText(admin bool) string {
 		"| `/att status` | Who is working in this team right now |",
 		"| `/att hours [today\\|week\\|month]` | Your hours, per day and per organization |",
 		"| `/att holiday list` | Upcoming holidays |",
+		"| `/att wfh` | Request work from home (opens a form) |",
+		"| `/att wfh list` / `/att wfh cancel <id>` | Your WFH requests / cancel one |",
 		"| `/att help` | This list |",
 	}
 	if admin {
@@ -439,6 +466,7 @@ func helpText(admin bool) string {
 			"| `/att report team [week\\|month]` | Every member of this team |",
 			"| `/att fix @user YYYY-MM-DD in HH:MM out HH:MM <reason>` | Replace a member's day in this team (audited) |",
 			"| `/att export [YYYY-MM]` | CSV of this team's sessions, sent to you by DM |",
+			"| `/att wfh pending` | Pending WFH requests (decide with the buttons in #attendance-admin) |",
 		)
 	}
 	return strings.Join(lines, "\n")
