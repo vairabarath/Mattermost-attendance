@@ -23,7 +23,7 @@ Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approval
    - **Integrations → Slash Commands → Add:**
      - Title `Attendance`, trigger word `att`
      - Request URL `http://attendance:8080/mm/command`, method **POST**
-     - Autocomplete on, hint `in | out | break | back | status | hours | holiday | member | help`
+     - Autocomplete on, hint `in | out | break | back | status | hours | holiday | help` (admin commands are listed in `/att help`)
      - Copy the **token** → `TEAM_<KEY>_SLASH_TOKEN`
    - Create public channel `attendance` and private channel `attendance-admin` (add the admins). Their ids go in `.env` (needed from phase 3).
    - Add the `attendance` bot to the team and both channels.
