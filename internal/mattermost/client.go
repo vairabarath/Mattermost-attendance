@@ -19,6 +19,7 @@ type Client struct {
 	BaseURL string
 	token   string
 	http    *http.Client
+	dm      dmCache
 }
 
 // NewClient builds a client. The token is never logged.

@@ -70,10 +70,29 @@ func run(log *slog.Logger) error {
 		Status:    statusUpdater,
 		Signer:    signer,
 		ActionURL: cfg.ServiceURL + "/mm/action",
+		Admins:    attendance.NewAdminChecker(mm, 60*time.Second),
+		People:    mm,
 		Loc:       cfg.Location,
 		Log:       log,
 		Now:       time.Now,
 	}
+	jobs := &attendance.Jobs{
+		Store:      db,
+		Roster:     mm,
+		Msg:        mm,
+		Status:     statusUpdater,
+		Teams:      cfg.TeamList(),
+		TeamNames:  cfg,
+		Workdays:   cfg.Workdays,
+		MaxSession: time.Duration(cfg.MaxSessionHours) * time.Hour,
+		Leave:      attendance.NoLeave{},
+		Loc:        cfg.Location,
+		Log:        log.With("component", "jobs"),
+		Now:        time.Now,
+	}
+	stopJobs := jobs.Start(ctx)
+	defer stopJobs()
+
 	h := &handlers.Handler{Teams: cfg.Teams, Commander: svc, DB: db, Verifier: signer, Log: log}
 
 	srv := &http.Server{

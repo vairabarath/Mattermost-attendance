@@ -32,6 +32,7 @@ type WorkingMember struct {
 // Store is the persistence the service needs (implemented by internal/store).
 type Store interface {
 	StatusStore
+	AdminStore
 	// MemberRefreshedAt reports when a member's profile was last synced.
 	MemberRefreshedAt(ctx context.Context, userID string) (t time.Time, found bool, err error)
 	UpsertMember(ctx context.Context, userID, username, displayName string) error
@@ -87,7 +88,9 @@ type Service struct {
 	Teams     Teams
 	Status    *StatusUpdater // nil disables custom status updates
 	Signer    Signer
-	ActionURL string // where Mattermost posts button clicks
+	ActionURL string        // where Mattermost posts button clicks
+	Admins    *AdminChecker // nil: nobody is admin
+	People    PeopleAPI
 	Loc       *time.Location
 	Log       *slog.Logger
 	Now       func() time.Time
@@ -105,7 +108,7 @@ func (s *Service) Handle(ctx context.Context, c Command) Reply {
 	log := s.Log.With("team_id", c.TeamID, "user_id", c.UserID, "sub", sub)
 
 	if sub == "" || sub == "help" {
-		return text(helpText())
+		return text(helpText(s.isAdmin(ctx, c.TeamID, c.UserID)))
 	}
 	if err := s.ensureMember(ctx, c.UserID, c.UserName); err != nil {
 		log.Error("register member", "err", err)
@@ -129,8 +132,12 @@ func (s *Service) Handle(ctx context.Context, c Command) Reply {
 		r, err = s.teamStatus(ctx, c.TeamID)
 	case "hours":
 		r, err = s.hours(ctx, c.UserID, rest)
+	case "member":
+		r, err = s.member(ctx, c, rest)
+	case "holiday", "holidays":
+		r, err = s.holiday(ctx, c, rest)
 	default:
-		return text(fmt.Sprintf("Unknown command `%s`.\n\n%s", sub, helpText()))
+		return text(fmt.Sprintf("Unknown command `%s`.\n\n%s", sub, helpText(s.isAdmin(ctx, c.TeamID, c.UserID))))
 	}
 	if err != nil {
 		log.Error("command failed", "err", err)
@@ -381,8 +388,20 @@ func truncate(s string, n int) string {
 	return s
 }
 
-func helpText() string {
-	return strings.Join([]string{
+// isAdmin is the admin check for display purposes only (errors → false).
+func (s *Service) isAdmin(ctx context.Context, teamID, userID string) bool {
+	if s.Admins == nil {
+		return false
+	}
+	ok, err := s.Admins.IsAdmin(ctx, teamID, userID)
+	if err != nil {
+		s.Log.Warn("admin check failed", "user_id", userID, "err", err)
+	}
+	return ok
+}
+
+func helpText(admin bool) string {
+	lines := []string{
 		"#### Attendance commands",
 		"| Command | What it does |",
 		"|---|---|",
@@ -391,6 +410,22 @@ func helpText() string {
 		"| `/att break` / `/att back` | Start / end a break (not counted as work) |",
 		"| `/att status` | Who is working in this team right now |",
 		"| `/att hours [today\\|week\\|month]` | Your hours, per day and per organization |",
+		"| `/att holiday list` | Upcoming holidays |",
 		"| `/att help` | This list |",
-	}, "\n")
+	}
+	if admin {
+		lines = append(lines,
+			"",
+			"#### Admin commands (this team)",
+			"| Command | What it does |",
+			"|---|---|",
+			"| `/att member @user` | Show a member's settings |",
+			"| `/att member @user tracked on\\|off` | Include in reminders and summaries |",
+			"| `/att member @user reminders on\\|off` | 10:30 reminder DM |",
+			"| `/att member @user hours <n>` | Expected hours per day |",
+			"| `/att holiday add YYYY-MM-DD [all] <name>` | Add a holiday (`all` = every org, system admins) |",
+			"| `/att holiday remove <id>` | Remove a holiday |",
+		)
+	}
+	return strings.Join(lines, "\n")
 }

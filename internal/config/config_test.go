@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func env(m map[string]string) func(string) string {
@@ -59,5 +60,29 @@ func TestLoadDuplicateTeamID(t *testing.T) {
 	m["TEAM_SEECHANLABS_ID"] = "teamink"
 	if _, err := load(env(m)); err == nil {
 		t.Fatal("expected duplicate team id error")
+	}
+}
+
+func TestWorkdaysAndMaxSession(t *testing.T) {
+	cfg, err := load(env(base()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Workdays) != 5 || cfg.Workdays[time.Saturday] || !cfg.Workdays[time.Monday] || cfg.MaxSessionHours != 16 {
+		t.Errorf("defaults: %v %d", cfg.Workdays, cfg.MaxSessionHours)
+	}
+	if got := cfg.TeamList(); len(got) != 2 || got[0].Name != "InkYank" {
+		t.Errorf("TeamList order: %+v", got)
+	}
+	m := base()
+	m["WORKDAYS"] = "mon,tue,wed,thu,fri,sat"
+	m["MAX_SESSION_HOURS"] = "12"
+	cfg, err = load(env(m))
+	if err != nil || !cfg.Workdays[time.Saturday] || cfg.MaxSessionHours != 12 {
+		t.Fatalf("custom: %v %+v", err, cfg)
+	}
+	m["WORKDAYS"] = "mon,funday"
+	if _, err := load(env(m)); err == nil || !strings.Contains(err.Error(), "funday") {
+		t.Errorf("bad weekday accepted: %v", err)
 	}
 }

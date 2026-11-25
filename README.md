@@ -2,7 +2,7 @@
 
 Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approvals and reports — all through the `/att` slash command. Full spec: [attendance-bot-prompt.md](attendance-bot-prompt.md).
 
-**Status: Phase 2 (daily use).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours today|week|month`.
+**Status: Phase 3 (jobs & summaries).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours today|week|month`, scheduled reminders, daily summaries, auto-close of forgotten sessions, holidays and per-member settings.
 
 ## How it works
 
@@ -23,7 +23,7 @@ Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approval
    - **Integrations → Slash Commands → Add:**
      - Title `Attendance`, trigger word `att`
      - Request URL `http://attendance:8080/mm/command`, method **POST**
-     - Autocomplete on, hint `in | out | break | back | status | hours | help`
+     - Autocomplete on, hint `in | out | break | back | status | hours | holiday | member | help`
      - Copy the **token** → `TEAM_<KEY>_SLASH_TOKEN`
    - Create public channel `attendance` and private channel `attendance-admin` (add the admins). Their ids go in `.env` (needed from phase 3).
    - Add the `attendance` bot to the team and both channels.
@@ -59,7 +59,35 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att break` / `/att back` | Start / end a break. Breaks are not counted as work. |
 | `/att status` | Who is checked in to this team right now, since when, 🏢/🏠, and who is on break. |
 | `/att hours [today\|week\|month]` | Your hours: per day, total, and per organization. Week = Monday–today, month = 1st–today. |
-| `/att help` | Command list. |
+| `/att holiday list` | Upcoming holidays for this team (and all-org ones). |
+| `/att help` | Command list (admin commands shown to admins only). |
+
+**Admin commands** — for system admins (any team) and team admins (their own team only):
+
+| Command | What it does |
+|---|---|
+| `/att member @user` | Show the member's settings. |
+| `/att member @user tracked on\|off` | `off` excludes them from reminders, "not checked in" lists and expected-hours comparisons. |
+| `/att member @user reminders on\|off` | The 10:30 reminder DM. |
+| `/att member @user hours <n>` | Expected hours per day, all organizations combined (default 8; quarter hours). |
+| `/att holiday add YYYY-MM-DD <name>` | Holiday for this team. |
+| `/att holiday add YYYY-MM-DD all <name>` | Holiday for all organizations (system admins only). |
+| `/att holiday remove <id>` | Remove a holiday (ids from `/att holiday list`). |
+
+Member settings are global (one person, one set of settings) and every change is written to the audit log. The target must be a member of the team the command is run in.
+
+## Scheduled jobs
+
+Times are in `TIMEZONE`. Daily jobs skip non-workdays (`WORKDAYS`) and holidays — a team holiday skips that team, an all-org holiday skips everyone.
+
+| When | Job |
+|---|---|
+| 10:30 | DM tracked members (reminders on) who haven't checked in to **any** team today. One DM per person. |
+| 19:00 | DM everyone still checked in. |
+| 20:00 | Daily summary in each team's `#attendance`: who worked (hours, 🏢/🏠), who is still checked in, who worked for another org instead, who didn't check in. |
+| Hourly (:05), every day | Auto-close sessions open longer than `MAX_SESSION_HOURS`: check-out is set so net time = the member's expected hours (never later than now). DM to the member, flag in `#attendance-admin`, audit log, custom status restored. |
+
+Members are read from each team's Mattermost member list (bots and deactivated users excluded) and registered automatically, so people who never used `/att` still show as "not checked in". Each run is recorded in `job_runs`, so a restart never sends anything twice; a daily job missed during a restart still runs if the service is back within 2 hours.
 
 **Custom status:** on check-in the bot sets 🟢 *Working* (🏠 *Working from home* for WFH), ☕ *On break* during breaks. Your own status is saved at check-in and restored at check-out (unless it has expired, or you changed your status yourself meanwhile). Status failures never block check-in/out.
 
@@ -72,9 +100,10 @@ go test ./...
 go vet ./...
 ```
 
-Unit tests cover the hours calculation, week/month ranges, custom status save/restore, button signing, config loading and slash-token verification. Integration tests against a real Postgres come in phase 6.
+Unit tests cover the hours calculation, week/month ranges, custom status save/restore, button signing, config loading, slash-token verification, the admin check, auto-close math, job idempotency, reminders, workdays/holidays and the daily summary rules. Integration tests against a real Postgres come in phase 6.
 
 ## Known limitations
 
 - The system can't verify a member's physical location; WFH/office mode reflects approvals, not location.
+- Leave isn't tracked yet: there is only a hook, so people on leave still get reminders and show as "not checked in".
 - Mattermost doesn't sign requests to `/mm/*`. Slash commands are verified by per-team token; the service must stay reachable **only** on the internal Docker network — never publish its port.

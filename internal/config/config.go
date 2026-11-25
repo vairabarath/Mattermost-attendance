@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,6 +31,25 @@ type Config struct {
 	ServiceURL  string // this service's URL as Mattermost sees it
 	Location    *time.Location
 	Teams       map[string]Team // keyed by Mattermost team id
+	TeamOrder   []string        // team ids in TEAMS order
+
+	// Scheduled jobs (phase 3).
+	Workdays        map[time.Weekday]bool // WORKDAYS, default mon..fri
+	MaxSessionHours int                   // MAX_SESSION_HOURS, default 16
+}
+
+var weekdayNames = map[string]time.Weekday{
+	"sun": time.Sunday, "mon": time.Monday, "tue": time.Tuesday, "wed": time.Wednesday,
+	"thu": time.Thursday, "fri": time.Friday, "sat": time.Saturday,
+}
+
+// TeamList returns the configured teams in TEAMS order.
+func (c *Config) TeamList() []Team {
+	out := make([]Team, 0, len(c.TeamOrder))
+	for _, id := range c.TeamOrder {
+		out = append(out, c.Teams[id])
+	}
+	return out
 }
 
 var keyRe = regexp.MustCompile(`^[a-z0-9_]+$`)
@@ -106,6 +126,24 @@ func load(getenv func(string) string) (*Config, error) {
 			errs = append(errs, fmt.Errorf("%sID: team id %s configured twice", p, t.ID))
 		}
 		cfg.Teams[t.ID] = t
+		cfg.TeamOrder = append(cfg.TeamOrder, t.ID)
+	}
+
+	cfg.Workdays = map[time.Weekday]bool{}
+	for _, d := range strings.Split(def("WORKDAYS", "mon,tue,wed,thu,fri"), ",") {
+		wd, ok := weekdayNames[strings.ToLower(strings.TrimSpace(d))]
+		if !ok {
+			errs = append(errs, fmt.Errorf("WORKDAYS: unknown day %q (use mon,tue,...)", d))
+			continue
+		}
+		cfg.Workdays[wd] = true
+	}
+
+	maxH := def("MAX_SESSION_HOURS", "16")
+	if n, err := strconv.Atoi(maxH); err != nil || n < 1 || n > 72 {
+		errs = append(errs, fmt.Errorf("MAX_SESSION_HOURS %q: must be a whole number 1–72", maxH))
+	} else {
+		cfg.MaxSessionHours = n
 	}
 	if len(cfg.Teams) == 0 && len(errs) == 0 {
 		errs = append(errs, errors.New("TEAMS: no teams configured"))

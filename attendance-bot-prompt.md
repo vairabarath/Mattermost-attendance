@@ -290,8 +290,8 @@ attendance/
 
 1. **Core:** config, migrations, team mapping + token verification, auto member registration, `/att in`, `/att out`, `/att hours today`, `/att help`, Docker setup. **Write unit tests for the hours calculation first.**
 2. **Daily use:** breaks, buttons on check-in reply, `/att status`, custom status updates (with save/restore), `/att hours week|month` with org breakdown.
-3. **Jobs & summaries:** scheduler, job_runs idempotency, hourly auto-close, reminders, daily summary, holidays, member filtering (bots/deactivated/untracked).
-4. **Admin:** admin check (system admin + team admin), `/att report`, `/att fix` + audit log, `/att export` CSV, weekly report.
+3. **Jobs & summaries:** scheduler, job_runs idempotency, hourly auto-close, reminders, daily summary, holidays (`/att holiday`), member filtering (bots/deactivated/untracked), admin check (system admin + team admin, moved here from phase 4) and `/att member` settings.
+4. **Admin:** `/att report`, `/att fix` + audit log, `/att export` CSV, weekly report.
 5. **WFH:** dialogs, request flow, approve/reject buttons, work_mode on check-in, `/att wfh list|cancel|pending`, 18:00 pending reminder.
 6. **Hardening:** integration tests against a real Postgres (testcontainers or compose), backup script, README, final review of security section.
 
@@ -325,7 +325,9 @@ Rules:
 ## 16. Open questions — ask me before the phase that needs them
 
 1. **Are the 3 system admins tracked?** Should `barath`, `janarthanan`, `madmap` check in like everyone else, or default to `tracked=false`? (Phase 3)
+   **Answer:** tracked like everyone else.
 2. **How do we set `tracked`, `expected_hours` and `reminders_on` per member?** Options: an admin command (e.g. `/att member @user ...`), or env/config. (Phase 3)
+   **Answer:** admin command `/att member @user ...`.
 3. **Half-day WFH:** what does an approved half day change — mode for the whole day, or only informational? (Phase 5)
 4. **Leave:** is a simple leave mechanism wanted later (so people on leave aren't reminded or listed as absent)? For now only the hook exists. (Phase 3)
 5. **Testcontainers:** OK to add `testcontainers-go` as a test dependency, or use the compose Postgres instead? (Phase 6)

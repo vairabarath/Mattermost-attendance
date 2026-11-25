@@ -2,7 +2,10 @@ module github.com/vairabarath/Mattermost-attendance
 
 go 1.27.4
 
-require github.com/jackc/pgx/v5 v5.13.0
+require (
+	github.com/jackc/pgx/v5 v5.13.0
+	github.com/robfig/cron/v3 v3.0.1
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
