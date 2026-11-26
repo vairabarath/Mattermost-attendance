@@ -1,0 +1,6 @@
+{"data": {"search": {"pageInfo": {"hasNextPage": false, "endCursor": "Y3Vyc29yOjUx"}, "nodes": [
+  {"number": 7, "title": "Renew domain", "url": "https://github.com/inkyank-org/operations/issues/7", "updatedAt": "2026-11-20T10:00:00Z",
+   "repository": {"nameWithOwner": "inkyank-org/operations"},
+   "projectItems": {"nodes": [{"project": {"id": "PVT_kwDOinkyank"}, "status": {"name": "Blocked"}, "priority": {"name": "Medium"}, "due": {"date": "2026-12-01"}}]}},
+  {}
+]}}}

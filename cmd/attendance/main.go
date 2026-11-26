@@ -17,6 +17,7 @@ import (
 
 	"github.com/vairabarath/Mattermost-attendance/internal/attendance"
 	"github.com/vairabarath/Mattermost-attendance/internal/config"
+	"github.com/vairabarath/Mattermost-attendance/internal/github"
 	"github.com/vairabarath/Mattermost-attendance/internal/handlers"
 	"github.com/vairabarath/Mattermost-attendance/internal/mattermost"
 	"github.com/vairabarath/Mattermost-attendance/internal/store"
@@ -82,6 +83,10 @@ func run(log *slog.Logger) error {
 		Log:       log,
 		Now:       time.Now,
 	}
+	if tasks := newTaskSource(cfg, log); tasks != nil {
+		svc.Tasks = tasks
+		go tasks.Warm(ctx)
+	}
 	jobs := &attendance.Jobs{
 		Store:      db,
 		Roster:     mm,
@@ -129,6 +134,32 @@ func run(log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// newTaskSource builds the GitHub task source, or nil when GitHub is off
+// or the App key can't be loaded. GitHub problems never stop attendance.
+func newTaskSource(cfg *config.Config, log *slog.Logger) *github.Tasks {
+	if !cfg.GitHubEnabled() {
+		log.Info("github integration off (GITHUB_APP_ID not set)")
+		return nil
+	}
+	key, warn, err := github.LoadPrivateKey(cfg.GitHubPrivateKeyPath)
+	if err != nil {
+		log.Error("github integration off: can't load the App private key", "err", err)
+		return nil
+	}
+	if warn != "" {
+		log.Warn(warn)
+	}
+	glog := log.With("component", "github")
+	teams := map[string]github.TeamProject{}
+	for id, t := range cfg.Teams {
+		if t.GitHubOrg != "" {
+			teams[id] = github.TeamProject{Org: t.GitHubOrg, Number: t.GitHubProject}
+		}
+	}
+	app := github.NewApp(cfg.GitHubAPIURL, cfg.GitHubAppID, key, glog)
+	return github.NewTasks(app, teams, glog)
 }
 
 // connectWithRetry waits for Postgres to accept connections (up to ~60s).

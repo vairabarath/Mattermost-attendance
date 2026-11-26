@@ -1,0 +1,1 @@
+{"token": "ghs_testtoken", "expires_at": "2099-01-01T00:00:00Z", "permissions": {"issues": "write", "organization_projects": "write", "members": "read", "metadata": "read"}, "repository_selection": "all"}

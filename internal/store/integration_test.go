@@ -427,3 +427,34 @@ func TestIntegrationMemberSettingsSurviveSync(t *testing.T) {
 		t.Errorf("new member defaults: %+v", m)
 	}
 }
+
+func TestIntegrationGitHubLogin(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	login := "Jana-Dev"
+	_, after, err := s.UpdateMember(ctx, u1, attendance.MemberUpdate{GitHubLogin: &login})
+	if err != nil || after.GitHubLogin != "Jana-Dev" {
+		t.Fatalf("link: %v %+v", err, after)
+	}
+	if m, _ := s.GetMember(ctx, u1); m.GitHubLogin != "Jana-Dev" || !m.Tracked {
+		t.Errorf("stored: %+v", m)
+	}
+	// Logins are case-insensitive: another member can't take "jana-dev".
+	other := "jana-dev"
+	if _, _, err := s.UpdateMember(ctx, u2, attendance.MemberUpdate{GitHubLogin: &other}); !errors.Is(err, attendance.ErrGitHubLoginTaken) {
+		t.Fatalf("duplicate: want ErrGitHubLoginTaken, got %v", err)
+	}
+	// Relinking the same member and unlinking both work; unlinked is NULL,
+	// so several unlinked members don't collide.
+	if _, _, err := s.UpdateMember(ctx, u1, attendance.MemberUpdate{GitHubLogin: &other}); err != nil {
+		t.Fatalf("relink same member: %v", err)
+	}
+	none := ""
+	for _, u := range []string{u1, u2} {
+		if _, after, err := s.UpdateMember(ctx, u, attendance.MemberUpdate{GitHubLogin: &none}); err != nil || after.GitHubLogin != "" {
+			t.Fatalf("unlink %s: %v", u, err)
+		}
+	}
+	if n := countRows(t, s, `SELECT count(*) FROM members WHERE github_login IS NULL`); n < 2 {
+		t.Errorf("unlinked logins should be NULL, got %d NULL rows", n)
+	}
+}

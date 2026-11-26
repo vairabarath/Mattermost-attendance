@@ -24,6 +24,7 @@ type MemberSettings struct {
 	RemindersOn   bool    `json:"reminders_on"`
 	Tracked       bool    `json:"tracked"`
 	Active        bool    `json:"-"`
+	GitHubLogin   string  `json:"github_login"`
 	// Since is when the bot first saw the member; expected hours start then.
 	Since time.Time `json:"-"`
 }
@@ -33,6 +34,7 @@ type MemberUpdate struct {
 	Tracked       *bool
 	RemindersOn   *bool
 	ExpectedHours *float64
+	GitHubLogin   *string // "" clears the link
 }
 
 // Holiday is a day off; TeamID "" means all organizations.
@@ -99,7 +101,8 @@ const memberUsage = "Usage:\n" +
 	"- `/att member @user` — show settings\n" +
 	"- `/att member @user tracked on|off` — include in reminders and summaries\n" +
 	"- `/att member @user reminders on|off` — 10:30 reminder DM\n" +
-	"- `/att member @user hours <n>` — expected hours per day (all organizations combined)"
+	"- `/att member @user hours <n>` — expected hours per day (all organizations combined)\n" +
+	"- `/att member @user github <username>|none` — link (or unlink) their GitHub login"
 
 func (s *Service) member(ctx context.Context, c Command, args string) (Reply, error) {
 	if r, err := s.requireAdmin(ctx, c.TeamID, c.UserID); r != nil || err != nil {
@@ -139,15 +142,41 @@ func (s *Service) member(ctx context.Context, c Command, args string) (Reply, er
 		if err != nil || ms == nil {
 			return Reply{}, err
 		}
-		return text(fmt.Sprintf("#### Settings for @%s\n| Setting | Value |\n|---|---|\n| Tracked | %s |\n| Reminders | %s |\n| Expected hours/day | %s |\n\nSettings apply across all organizations.",
-			target.Username, onOff(ms.Tracked), onOff(ms.RemindersOn), fmtHours(ms.ExpectedHours))), nil
+		gh := "not linked"
+		if ms.GitHubLogin != "" {
+			gh = ms.GitHubLogin
+		}
+		return text(fmt.Sprintf("#### Settings for @%s\n| Setting | Value |\n|---|---|\n| Tracked | %s |\n| Reminders | %s |\n| Expected hours/day | %s |\n| GitHub | %s |\n\nSettings apply across all organizations.",
+			target.Username, onOff(ms.Tracked), onOff(ms.RemindersOn), fmtHours(ms.ExpectedHours), gh)), nil
 	}
 
-	upd, desc, errMsg := parseMemberUpdate(fields[1], fields[2])
+	var (
+		upd    MemberUpdate
+		desc   string
+		errMsg string
+	)
+	if strings.EqualFold(fields[1], "github") {
+		login := strings.TrimPrefix(fields[2], "@")
+		if strings.EqualFold(login, "none") {
+			login, desc = "", "GitHub login unlinked"
+		} else {
+			canonical, msg, err := s.verifyGitHubLogin(ctx, c.TeamID, login)
+			if err != nil || msg != "" {
+				return text(msg), err
+			}
+			login, desc = canonical, "GitHub login "+canonical
+		}
+		upd.GitHubLogin = &login
+	} else {
+		upd, desc, errMsg = parseMemberUpdate(fields[1], fields[2])
+	}
 	if errMsg != "" {
 		return text(errMsg + "\n\n" + memberUsage), nil
 	}
 	before, after, err := s.Store.UpdateMember(ctx, target.ID, upd)
+	if errors.Is(err, ErrGitHubLoginTaken) {
+		return text(fmt.Sprintf("GitHub login `%s` is already linked to another member. Unlink it there first (`/att member @user github none`).", *upd.GitHubLogin)), nil
+	}
 	if err != nil {
 		return Reply{}, err
 	}

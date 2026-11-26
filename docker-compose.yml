@@ -6,6 +6,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://attendance:${POSTGRES_PASSWORD}@attendance-db:5432/attendance?sslmode=disable
+    # GitHub App private key (README → "GitHub tasks"). Read-only; the file
+    # must be owned by uid 65532 (the image's nonroot user), mode 400.
+    volumes:
+      - ./secrets:/run/secrets:ro
     depends_on:
       attendance-db:
         condition: service_healthy

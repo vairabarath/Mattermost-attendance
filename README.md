@@ -2,7 +2,7 @@
 
 Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approvals and reports — all through the `/att` slash command. Full spec: [attendance-bot-prompt.md](attendance-bot-prompt.md).
 
-**Status: complete (phase 6: hardening).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export, the Monday weekly report and WFH requests with approvals.
+**Status: attendance complete; GitHub tasks + EOD reports in progress (phase 1 of 7: GitHub foundation, spec: tasks-eod-prompt.md).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export, the Monday weekly report and WFH requests with approvals.
 
 ## How it works
 
@@ -63,6 +63,8 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att wfh` | Request work from home: opens a form (start date, optional end date, half day, reason). |
 | `/att wfh list` | Your WFH requests in this team and their status. |
 | `/att wfh cancel <id>` | Cancel a pending request, or an approved one that hasn't started. |
+| `/att github [username]` | Show your linked GitHub login, or link it. The user must be a member of this team's GitHub org. |
+| `/att tasks` | Your open issues on this team's GitHub Project (not Done): overdue first, then priority, then due date. ⚠️ overdue, 🚧 blocked. |
 | `/att help` | Command list (admin commands shown to admins only). |
 
 **Admin commands** — for system admins (any team) and team admins (their own team only):
@@ -73,6 +75,7 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att member @user tracked on\|off` | `off` excludes them from reminders, "not checked in" lists and expected-hours comparisons. |
 | `/att member @user reminders on\|off` | The 10:30 reminder DM. |
 | `/att member @user hours <n>` | Expected hours per day, all organizations combined (default 8; quarter hours). |
+| `/att member @user github <username>\|none` | Link (verified against this team's GitHub org) or unlink a member's GitHub login. Audited. |
 | `/att holiday add YYYY-MM-DD <name>` | Holiday for this team. |
 | `/att holiday add YYYY-MM-DD all <name>` | Holiday for all organizations (system admins only). |
 | `/att holiday remove <id>` | Remove a holiday (ids from `/att holiday list`). |
@@ -98,6 +101,38 @@ WFH buttons stay valid for 60 days (the expiry is part of the signed payload); d
 **CSV columns:** `username, display_name, date, check_in, check_out, break_minutes, net_minutes, net_hours, work_mode, auto_closed, in_note, out_summary`. Times are in `TIMEZONE`. Notes starting with `= + - @` are prefixed with `'` so spreadsheets don't run them as formulas.
 
 Member settings are global (one person, one set of settings) and every change is written to the audit log. The target must be a member of the team the command is run in.
+
+## GitHub tasks
+
+Each team can be linked to a GitHub organization and an organization **Project (v2)**. Members link their GitHub login once (`/att github <username>`; one login per member, used in all teams) and see their assigned open tasks with `/att tasks`. GitHub problems never affect attendance: on any error the task part is skipped with a short message.
+
+### One-time GitHub setup
+
+1. **Create a GitHub App** (org → Settings → Developer settings → GitHub Apps → New GitHub App). Homepage URL: anything (e.g. your Mattermost URL). **Webhook: untick "Active".** Permissions:
+   - Repository: **Issues** read & write, **Pull requests** read, **Contents** read, **Metadata** read.
+   - Organization: **Projects** read & write, **Members** read.
+   - "Where can this GitHub App be installed?": *Any account* if your teams use more than one GitHub org, otherwise *Only on this account*.
+2. Note the **App ID**, then **Generate a private key** (downloads a `.pem`).
+3. **Install** the App on each GitHub org (App page → Install App), on *All repositories*.
+4. On the server, put the key at `secrets/github-app.pem` next to `docker-compose.yml`, owned by the container user and readable only by it:
+   ```bash
+   sudo mkdir -p secrets && sudo mv ~/your-app.private-key.pem secrets/github-app.pem
+   sudo chown -R 65532:65532 secrets && sudo chmod 500 secrets && sudo chmod 400 secrets/github-app.pem
+   ```
+5. In `.env`: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY_PATH=/run/secrets/github-app.pem`, and per team `TEAM_<KEY>_GITHUB_ORG` / `TEAM_<KEY>_GITHUB_PROJECT` (the number in `github.com/orgs/<org>/projects/<number>`). Several teams may share an org and/or a Project. Then `docker compose up -d --build attendance`; the log shows `github project ok` (or exactly what's missing) for each team.
+
+### Project fields (named exactly)
+
+| Field | Type | Values |
+|---|---|---|
+| Status | single select | Todo, In progress, In review, Blocked, Done |
+| Priority | single select | High, Medium, Low |
+| Due date | date | |
+| Estimate | number | hours (optional field) |
+
+The bot looks fields and options up **by name** (never hard-coded ids), caches them for 6 hours, and logs a clear error if one is missing. Enable the Project's built-in workflows **Item closed → Status: Done** (and **Pull request merged → Done** for repos that use PRs). Put non-code work in an `operations` repo so every task is an issue.
+
+Repo conventions: one branch per issue named `<number>-description` (e.g. `42-session-timeout`); the final commit on the default branch says `Closes #42`.
 
 ## Scheduled jobs
 
@@ -164,7 +199,8 @@ Reviewed at the end of phase 6:
 - **SQL:** all values are bound parameters; the only concatenation is of constant column lists.
 - **Logs:** JSON; only ids, team/job names, timings and errors — never tokens, notes, reasons or message text, and never request bodies.
 - **Secrets** only in `.env` (mode 600, git-ignored, not in git history). The image is distroless and runs as `nonroot`. Request bodies are capped at 64 KB, with server timeouts.
-- **Dependencies:** pgx and robfig/cron only; `govulncheck` reports no known vulnerabilities (also run in CI).
+- **GitHub App key:** mounted read-only from `secrets/` (git-ignored), mode 400, owned by the container user; never logged. Installation tokens are cached in memory only. GitHub calls have timeouts, retries on 5xx and stop on rate limits.
+- **Dependencies:** pgx and robfig/cron only (the GitHub client is hand-written on the standard library); `govulncheck` reports no known vulnerabilities (also run in CI).
 - **CSV export** escapes values starting with `= + - @` so spreadsheets don't run them.
 
 ## Known limitations

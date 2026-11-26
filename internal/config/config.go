@@ -19,6 +19,10 @@ type Team struct {
 	SlashToken          string // verification token of this team's /att command
 	AttendanceChannelID string // #attendance (used from phase 3)
 	AdminChannelID      string // #attendance-admin (used from phase 3)
+
+	// GitHub (tasks + EOD). Empty GitHubOrg: no task features for this team.
+	GitHubOrg     string // TEAM_K_GITHUB_ORG
+	GitHubProject int    // TEAM_K_GITHUB_PROJECT: org Project (v2) number
 }
 
 // Config is the full service configuration.
@@ -36,7 +40,15 @@ type Config struct {
 	// Scheduled jobs (phase 3).
 	Workdays        map[time.Weekday]bool // WORKDAYS, default mon..fri
 	MaxSessionHours int                   // MAX_SESSION_HOURS, default 16
+
+	// GitHub App (tasks + EOD). GitHubAppID 0: GitHub features off.
+	GitHubAppID          int64
+	GitHubPrivateKeyPath string
+	GitHubAPIURL         string // default https://api.github.com
 }
+
+// GitHubEnabled reports whether the GitHub App is configured.
+func (c *Config) GitHubEnabled() bool { return c.GitHubAppID != 0 }
 
 var weekdayNames = map[string]time.Weekday{
 	"sun": time.Sunday, "mon": time.Monday, "tue": time.Tuesday, "wed": time.Wednesday,
@@ -58,7 +70,8 @@ var keyRe = regexp.MustCompile(`^[a-z0-9_]+$`)
 //
 // Teams are declared as TEAMS=inkyank,seechanlabs,... and then, for each key
 // K (upper-cased), TEAM_K_ID, TEAM_K_NAME, TEAM_K_SLASH_TOKEN,
-// TEAM_K_ATTENDANCE_CHANNEL_ID and TEAM_K_ADMIN_CHANNEL_ID.
+// TEAM_K_ATTENDANCE_CHANNEL_ID and TEAM_K_ADMIN_CHANNEL_ID, plus optional
+// TEAM_K_GITHUB_ORG and TEAM_K_GITHUB_PROJECT.
 func Load() (*Config, error) {
 	return load(os.Getenv)
 }
@@ -119,6 +132,15 @@ func load(getenv func(string) string) (*Config, error) {
 			AttendanceChannelID: def(p+"ATTENDANCE_CHANNEL_ID", ""),
 			AdminChannelID:      def(p+"ADMIN_CHANNEL_ID", ""),
 		}
+		if org := def(p+"GITHUB_ORG", ""); org != "" {
+			t.GitHubOrg = org
+			pn := def(p+"GITHUB_PROJECT", "")
+			if n, err := strconv.Atoi(pn); err != nil || n < 1 {
+				errs = append(errs, fmt.Errorf("%sGITHUB_PROJECT %q: must be the Project number (from its URL) when %sGITHUB_ORG is set", p, pn, p))
+			} else {
+				t.GitHubProject = n
+			}
+		}
 		if t.ID == "" {
 			continue
 		}
@@ -145,6 +167,24 @@ func load(getenv func(string) string) (*Config, error) {
 	} else {
 		cfg.MaxSessionHours = n
 	}
+
+	cfg.GitHubAPIURL = strings.TrimRight(def("GITHUB_API_URL", "https://api.github.com"), "/")
+	if id := def("GITHUB_APP_ID", ""); id != "" {
+		n, err := strconv.ParseInt(id, 10, 64)
+		if err != nil || n < 1 {
+			errs = append(errs, fmt.Errorf("GITHUB_APP_ID %q: must be the numeric App ID", id))
+		}
+		cfg.GitHubAppID = n
+		cfg.GitHubPrivateKeyPath = req("GITHUB_APP_PRIVATE_KEY_PATH")
+	}
+	if cfg.GitHubAppID == 0 {
+		for _, id := range cfg.TeamOrder {
+			if t := cfg.Teams[id]; t.GitHubOrg != "" {
+				errs = append(errs, fmt.Errorf("TEAM_%s_GITHUB_ORG is set but GITHUB_APP_ID is not", strings.ToUpper(t.Key)))
+			}
+		}
+	}
+
 	if len(cfg.Teams) == 0 && len(errs) == 0 {
 		errs = append(errs, errors.New("TEAMS: no teams configured"))
 	}

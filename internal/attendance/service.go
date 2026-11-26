@@ -106,6 +106,7 @@ type Service struct {
 	Posts     Poster
 	DialogURL string                 // where Mattermost posts dialog submissions
 	TeamCfg   map[string]config.Team // channel ids per team
+	Tasks     TaskSource             // nil: GitHub features off
 	Loc       *time.Location
 	Log       *slog.Logger
 	Now       func() time.Time
@@ -159,6 +160,10 @@ func (s *Service) Handle(ctx context.Context, c Command) Reply {
 		r, err = s.export(ctx, c, rest)
 	case "wfh":
 		r, err = s.wfh(ctx, c, rest)
+	case "github":
+		r, err = s.github(ctx, c, rest)
+	case "tasks", "task":
+		r, err = s.tasks(ctx, c, rest)
 	default:
 		return text(fmt.Sprintf("Unknown command `%s`.\n\n%s", sub, helpText(s.isAdmin(ctx, c.TeamID, c.UserID))))
 	}
@@ -448,6 +453,8 @@ func helpText(admin bool) string {
 		"| `/att holiday list` | Upcoming holidays |",
 		"| `/att wfh` | Request work from home (opens a form) |",
 		"| `/att wfh list` / `/att wfh cancel <id>` | Your WFH requests / cancel one |",
+		"| `/att github [username]` | Show / link your GitHub login |",
+		"| `/att tasks` | Your open tasks on this team's GitHub Project |",
 		"| `/att help` | This list |",
 	}
 	if admin {
@@ -460,6 +467,7 @@ func helpText(admin bool) string {
 			"| `/att member @user tracked on\\|off` | Include in reminders and summaries |",
 			"| `/att member @user reminders on\\|off` | 10:30 reminder DM |",
 			"| `/att member @user hours <n>` | Expected hours per day |",
+			"| `/att member @user github <username>\\|none` | Link / unlink a member's GitHub login |",
 			"| `/att holiday add YYYY-MM-DD [all] <name>` | Add a holiday (`all` = every org, system admins) |",
 			"| `/att holiday remove <id>` | Remove a holiday |",
 			"| `/att report @user [week\\|month]` | A member's hours in this team |",

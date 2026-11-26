@@ -86,3 +86,45 @@ func TestWorkdaysAndMaxSession(t *testing.T) {
 		t.Errorf("bad weekday accepted: %v", err)
 	}
 }
+
+func TestGitHubConfig(t *testing.T) {
+	cfg, err := load(env(base()))
+	if err != nil || cfg.GitHubEnabled() {
+		t.Fatalf("GitHub should be off by default: %v", err)
+	}
+
+	m := base()
+	m["GITHUB_APP_ID"] = "12345"
+	m["GITHUB_APP_PRIVATE_KEY_PATH"] = "/run/secrets/github-app.pem"
+	m["TEAM_INKYANK_GITHUB_ORG"] = "inkyank-org"
+	m["TEAM_INKYANK_GITHUB_PROJECT"] = "3"
+	cfg, err = load(env(m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.GitHubEnabled() || cfg.GitHubAPIURL != "https://api.github.com" {
+		t.Errorf("github settings: %+v", cfg)
+	}
+	if ink := cfg.Teams["teamink"]; ink.GitHubOrg != "inkyank-org" || ink.GitHubProject != 3 {
+		t.Errorf("team github: %+v", ink)
+	}
+	if cfg.Teams["teamsee"].GitHubOrg != "" {
+		t.Error("team without GITHUB_ORG should have none")
+	}
+
+	bad := []map[string]string{
+		{"TEAM_INKYANK_GITHUB_ORG": "x"},                                                            // org but no app
+		{"GITHUB_APP_ID": "12345"},                                                                  // no key path
+		{"GITHUB_APP_ID": "abc", "GITHUB_APP_PRIVATE_KEY_PATH": "/k"},                               // bad id
+		{"GITHUB_APP_ID": "1", "GITHUB_APP_PRIVATE_KEY_PATH": "/k", "TEAM_INKYANK_GITHUB_ORG": "x"}, // no project
+	}
+	for _, extra := range bad {
+		m := base()
+		for k, v := range extra {
+			m[k] = v
+		}
+		if _, err := load(env(m)); err == nil {
+			t.Errorf("accepted %v", extra)
+		}
+	}
+}

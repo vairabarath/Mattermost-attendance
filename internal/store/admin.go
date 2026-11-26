@@ -12,11 +12,11 @@ import (
 	"github.com/vairabarath/Mattermost-attendance/internal/attendance"
 )
 
-const memberCols = `mm_user_id, username, COALESCE(display_name, ''), expected_hours::float8, reminders_on, tracked, active, created_at`
+const memberCols = `mm_user_id, username, COALESCE(display_name, ''), expected_hours::float8, reminders_on, tracked, active, created_at, COALESCE(github_login, '')`
 
 func scanMember(r pgx.Row) (attendance.MemberSettings, error) {
 	var m attendance.MemberSettings
-	err := r.Scan(&m.UserID, &m.Username, &m.DisplayName, &m.ExpectedHours, &m.RemindersOn, &m.Tracked, &m.Active, &m.Since)
+	err := r.Scan(&m.UserID, &m.Username, &m.DisplayName, &m.ExpectedHours, &m.RemindersOn, &m.Tracked, &m.Active, &m.Since, &m.GitHubLogin)
 	return m, err
 }
 
@@ -53,8 +53,17 @@ func (s *Store) UpdateMember(ctx context.Context, userID string, upd attendance.
 	if upd.ExpectedHours != nil {
 		after.ExpectedHours = *upd.ExpectedHours
 	}
-	if _, err = tx.Exec(ctx, `UPDATE members SET tracked = $2, reminders_on = $3, expected_hours = $4 WHERE mm_user_id = $1`,
-		userID, after.Tracked, after.RemindersOn, after.ExpectedHours); err != nil {
+	if upd.GitHubLogin != nil {
+		after.GitHubLogin = *upd.GitHubLogin
+	}
+	_, err = tx.Exec(ctx, `UPDATE members SET tracked = $2, reminders_on = $3, expected_hours = $4, github_login = NULLIF($5, '')
+		WHERE mm_user_id = $1`,
+		userID, after.Tracked, after.RemindersOn, after.ExpectedHours, after.GitHubLogin)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "members_github_login_key" {
+		return before, after, attendance.ErrGitHubLoginTaken
+	}
+	if err != nil {
 		return before, after, err
 	}
 	return before, after, tx.Commit(ctx)
