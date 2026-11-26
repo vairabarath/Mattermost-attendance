@@ -36,6 +36,7 @@ type Store interface {
 	AdminStore
 	ReportStore
 	WFHStore
+	EODStore
 	// MemberRefreshedAt reports when a member's profile was last synced.
 	MemberRefreshedAt(ctx context.Context, userID string) (t time.Time, found bool, err error)
 	UpsertMember(ctx context.Context, userID, username, displayName string) error
@@ -139,7 +140,7 @@ func (s *Service) Handle(ctx context.Context, c Command) Reply {
 	case "in":
 		r, err = s.checkIn(ctx, c, rest)
 	case "out":
-		r, err = s.checkOut(ctx, c.UserID, rest)
+		r, err = s.checkOut(ctx, c.UserID, rest, c.TriggerID)
 	case "break":
 		r, err = s.startBreak(ctx, c.UserID)
 	case "back":
@@ -164,6 +165,8 @@ func (s *Service) Handle(ctx context.Context, c Command) Reply {
 		r, err = s.github(ctx, c, rest)
 	case "tasks", "task":
 		r, err = s.tasks(ctx, c, rest)
+	case "eod":
+		r, err = s.eod(ctx, c, rest)
 	default:
 		return text(fmt.Sprintf("Unknown command `%s`.\n\n%s", sub, helpText(s.isAdmin(ctx, c.TeamID, c.UserID))))
 	}
@@ -198,7 +201,9 @@ func (s *Service) HandleButton(ctx context.Context, c Click) Reply {
 	case ActBack:
 		r, err = s.endBreak(ctx, userID)
 	case ActOut:
-		r, err = s.checkOut(ctx, userID, "")
+		r, err = s.checkOut(ctx, userID, "", c.TriggerID)
+	case ActEOD:
+		r, err = s.eodClick(ctx, c)
 	default:
 		return text("Unknown button.")
 	}
@@ -261,7 +266,10 @@ func (s *Service) checkIn(ctx context.Context, c Command, note string) (Reply, e
 	return s.withButtons(msg, c.UserID, false), nil
 }
 
-func (s *Service) checkOut(ctx context.Context, userID, summary string) (Reply, error) {
+// checkOut closes the open session and opens the end-of-day form for the
+// session's team (when triggerID allows); the reply carries a button to
+// reopen the form.
+func (s *Service) checkOut(ctx context.Context, userID, summary, triggerID string) (Reply, error) {
 	now := s.Now()
 	sess, err := s.Store.CloseOpenSession(ctx, userID, now, truncate(summary, maxNoteLen))
 	if errors.Is(err, ErrNotCheckedIn) {
@@ -280,9 +288,20 @@ func (s *Service) checkOut(ctx context.Context, userID, summary string) (Reply, 
 	if err != nil {
 		return Reply{}, err
 	}
-	return text(fmt.Sprintf("🔴 Checked out of **%s** at %s · this session %s\n%s",
+	msg := fmt.Sprintf("🔴 Checked out of **%s** at %s · this session %s\n%s",
 		s.Teams.TeamName(sess.TeamID), s.fmtClock(now), FormatDuration(sessionTotal),
-		s.todayLine(perTeam))), nil
+		s.todayLine(perTeam))
+
+	day := sess.CheckIn.In(s.Loc).Format(DayFormat) // the report is for the day the session started
+	if triggerID != "" {
+		if err := s.openEODForm(ctx, userID, sess.TeamID, day, triggerID); err != nil {
+			s.Log.Warn("eod: open form on check-out failed", "user_id", userID, "err", err)
+		}
+	}
+	return Reply{
+		Text:        msg + "\n📝 Fill in your end-of-day report (reopen it with the button or `/att eod submit`).",
+		Attachments: s.eodButton(userID, sess.TeamID, day),
+	}, nil
 }
 
 func (s *Service) startBreak(ctx context.Context, userID string) (Reply, error) {
@@ -455,6 +474,7 @@ func helpText(admin bool) string {
 		"| `/att wfh list` / `/att wfh cancel <id>` | Your WFH requests / cancel one |",
 		"| `/att github` | Show your linked GitHub login (admins link accounts) |",
 		"| `/att tasks` | Your open tasks on this team's GitHub Project |",
+		"| `/att eod` / `/att eod submit` | Your end-of-day report for today / open the report form |",
 		"| `/att help` | This list |",
 	}
 	if admin {

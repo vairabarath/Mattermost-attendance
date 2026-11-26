@@ -54,6 +54,10 @@ type TaskSource interface {
 	// AssignedTasks returns open issues assigned to login on teamID's
 	// Project, excluding Status Done. Order is not defined.
 	AssignedTasks(ctx context.Context, teamID, login string) ([]Task, error)
+	// EODTasks returns, in one call, login's open tasks on teamID's Project
+	// (as AssignedTasks) and the issues assigned to them on that Project
+	// that were closed during the local day starting at dayStart.
+	EODTasks(ctx context.Context, teamID, login string, dayStart time.Time) (open, closedToday []Task, err error)
 }
 
 var priorityRank = map[string]int{"High": 0, "Medium": 1, "Low": 2}

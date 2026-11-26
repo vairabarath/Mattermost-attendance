@@ -18,7 +18,15 @@ type Dialog struct {
 	State            string          `json:"state"`
 }
 
-// DialogElement is one form field: type "text", "textarea" or "bool".
+// DialogOption is one choice of a "select" element.
+type DialogOption struct {
+	Text  string `json:"text"`
+	Value string `json:"value"`
+}
+
+// DialogElement is one form field: type "text", "textarea", "bool" or
+// "select". Mattermost limits display_name to 24 and help_text to 150
+// characters.
 type DialogElement struct {
 	DisplayName string `json:"display_name"`
 	Name        string `json:"name"`
@@ -28,6 +36,9 @@ type DialogElement struct {
 	HelpText    string `json:"help_text,omitempty"`
 	Default     string `json:"default,omitempty"`
 	MaxLength   int    `json:"max_length,omitempty"`
+	MinLength   int    `json:"min_length,omitempty"`
+
+	Options []DialogOption `json:"options,omitempty"`
 }
 
 // DialogSubmission is what Mattermost POSTs to the dialog URL.
@@ -63,6 +74,21 @@ func (c *Client) CreatePostWithButtons(ctx context.Context, channelID, message s
 		"channel_id": channelID, "message": message,
 		"props": map[string]any{"attachments": atts},
 	})
+	if err != nil {
+		return "", err
+	}
+	var p struct {
+		ID string `json:"id"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/v4/posts", bytes.NewReader(body), &p); err != nil {
+		return "", err
+	}
+	return p.ID, nil
+}
+
+// CreateReply posts message as a reply in rootID's thread and returns its id.
+func (c *Client) CreateReply(ctx context.Context, channelID, rootID, message string) (string, error) {
+	body, err := json.Marshal(map[string]any{"channel_id": channelID, "root_id": rootID, "message": message})
 	if err != nil {
 		return "", err
 	}

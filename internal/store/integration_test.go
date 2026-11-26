@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -456,5 +457,86 @@ func TestIntegrationGitHubLogin(t *testing.T) {
 	}
 	if n := countRows(t, s, `SELECT count(*) FROM members WHERE github_login IS NULL`); n < 2 {
 		t.Errorf("unlinked logins should be NULL, got %d NULL rows", n)
+	}
+}
+
+func TestIntegrationEODResubmitUpdates(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	r := attendance.EODReport{UserID: u1, TeamID: teamA, Day: "2026-11-26", DidToday: "First version of the day",
+		Items: []attendance.EODItem{
+			{IssueURL: "https://github.com/o/r/issues/1", Title: "One", OldStatus: "Todo", NewStatus: "In progress"},
+			{IssueURL: "https://github.com/o/r/issues/2", Title: "Two", OldStatus: "In progress", NewStatus: "In progress", Synced: true},
+		}}
+	first, err := s.SaveEODReport(ctx, r)
+	if err != nil || first.ID == 0 || first.SyncStatus != "pending" {
+		t.Fatalf("first save: %v %+v", err, first)
+	}
+	if _, created, err := s.EnsureEODReply(ctx, first.ID, func() (string, error) { return "reply-1", nil }); err != nil || !created {
+		t.Fatalf("reply: %v %v", err, created)
+	}
+
+	r.DidToday, r.Blockers = "Second version", "Waiting for review"
+	r.Items = []attendance.EODItem{{IssueURL: "https://github.com/o/r/issues/2", Title: "Two", OldStatus: "In progress", NewStatus: "In progress", Synced: true}}
+	second, err := s.SaveEODReport(ctx, r)
+	if err != nil || second.ID != first.ID || second.ReplyPostID != "reply-1" || second.SyncStatus != "synced" {
+		t.Fatalf("resubmit should update the same report: %v %+v", err, second)
+	}
+	got, err := s.GetEODReport(ctx, u1, teamA, "2026-11-26")
+	if err != nil || got.DidToday != "Second version" || got.Blockers != "Waiting for review" || len(got.Items) != 1 || got.ReplyPostID != "reply-1" {
+		t.Fatalf("stored: %v %+v", err, got)
+	}
+	if n := countRows(t, s, `SELECT count(*) FROM eod_reports`); n != 1 {
+		t.Errorf("%d reports, want 1", n)
+	}
+	// The reply is created once; later calls return it.
+	calls := 0
+	if id, created, _ := s.EnsureEODReply(ctx, first.ID, func() (string, error) { calls++; return "reply-2", nil }); id != "reply-1" || created || calls != 0 {
+		t.Errorf("second EnsureEODReply: %q %v calls=%d", id, created, calls)
+	}
+	if none, _ := s.GetEODReport(ctx, u2, teamA, "2026-11-26"); none != nil {
+		t.Error("other member has no report")
+	}
+}
+
+func TestIntegrationEODThreadConcurrent(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	var (
+		mu    sync.Mutex
+		calls int
+		wg    sync.WaitGroup
+	)
+	ids := make([]string, 10)
+	errs := make([]error, 10)
+	for i := range ids {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ids[i], errs[i] = s.EnsureEODThread(ctx, teamA, "2026-11-26", func() (string, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				calls++
+				time.Sleep(20 * time.Millisecond) // widen the race window
+				return fmt.Sprintf("root-%d", calls), nil
+			})
+		}(i)
+	}
+	wg.Wait()
+	for i := range ids {
+		if errs[i] != nil || ids[i] != "root-1" {
+			t.Fatalf("caller %d: %q %v", i, ids[i], errs[i])
+		}
+	}
+	if calls != 1 {
+		t.Errorf("root post created %d times, want 1", calls)
+	}
+	// Another team or day gets its own root; a failed create leaves none.
+	if id, _ := s.EnsureEODThread(ctx, teamB, "2026-11-26", func() (string, error) { return "root-b", nil }); id != "root-b" {
+		t.Errorf("team B: %q", id)
+	}
+	if _, err := s.EnsureEODThread(ctx, teamA, "2026-11-27", func() (string, error) { return "", fmt.Errorf("mattermost down") }); err == nil {
+		t.Error("create error should be returned")
+	}
+	if n := countRows(t, s, `SELECT count(*) FROM eod_threads`); n != 2 {
+		t.Errorf("%d threads, want 2", n)
 	}
 }

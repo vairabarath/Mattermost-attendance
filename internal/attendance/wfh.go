@@ -77,6 +77,7 @@ type Poster interface {
 	CreatePostWithButtons(ctx context.Context, channelID, message string, atts []mattermost.Attachment) (string, error)
 	UpdatePost(ctx context.Context, postID, message string, atts []mattermost.Attachment) error
 	EphemeralPost(ctx context.Context, userID, channelID, message string) error
+	CreateReply(ctx context.Context, channelID, rootID, message string) (string, error)
 	DirectMessage(ctx context.Context, userID, message string) error
 	OpenDialog(ctx context.Context, triggerID, submitURL string, d mattermost.Dialog) error
 }
@@ -288,6 +289,8 @@ func (s *Service) HandleDialog(ctx context.Context, d DialogSubmit) DialogResult
 		res, err = s.submitWFH(ctx, d)
 	case dlgReject:
 		res, err = s.submitReject(ctx, d)
+	case dlgEOD:
+		res, err = s.submitEOD(ctx, d)
 	default:
 		return DialogResult{Error: "Unknown form."}
 	}

@@ -1,0 +1,15 @@
+{"data": {
+  "open": {"issueCount": 2, "nodes": [
+    {"number": 45, "title": "WFH approval buttons", "url": "https://github.com/inkyank-org/app/issues/45", "updatedAt": "2026-11-26T09:00:00Z",
+     "repository": {"nameWithOwner": "inkyank-org/app"},
+     "projectItems": {"nodes": [{"project": {"id": "PVT_kwDOinkyank"}, "status": {"name": "In progress"}, "priority": {"name": "High"}, "due": null}]}},
+    {"number": 60, "title": "Other project only", "url": "https://github.com/inkyank-org/app/issues/60", "updatedAt": "2026-11-26T09:00:00Z",
+     "repository": {"nameWithOwner": "inkyank-org/app"},
+     "projectItems": {"nodes": [{"project": {"id": "PVT_other"}, "status": {"name": "In progress"}, "priority": null, "due": null}]}}
+  ]},
+  "closed": {"nodes": [
+    {"number": 42, "title": "Session timeout handling", "url": "https://github.com/inkyank-org/app/issues/42", "updatedAt": "2026-11-26T11:00:00Z",
+     "repository": {"nameWithOwner": "inkyank-org/app"},
+     "projectItems": {"nodes": [{"project": {"id": "PVT_kwDOinkyank"}, "status": {"name": "Done"}, "priority": {"name": "High"}, "due": null}]}}
+  ]}
+}}

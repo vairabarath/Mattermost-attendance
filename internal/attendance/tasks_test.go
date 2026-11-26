@@ -87,12 +87,14 @@ func TestValidGitHubLogin(t *testing.T) {
 // --- service tests ---
 
 type fakeTasks struct {
-	configured map[string]bool
-	verify     map[string]error // lower(login) → error
-	tasks      []Task
-	tasksErr   error
-	gotLogin   string
-	delay      time.Duration
+	eodOpen, eodClosed []Task
+	eodErr             error
+	configured         map[string]bool
+	verify             map[string]error // lower(login) → error
+	tasks              []Task
+	tasksErr           error
+	gotLogin           string
+	delay              time.Duration
 }
 
 func (f *fakeTasks) Configured(teamID string) bool { return f.configured[teamID] }
@@ -105,6 +107,10 @@ func (f *fakeTasks) VerifyLogin(_ context.Context, _, login string) (string, err
 		return "Jana-Dev", nil
 	}
 	return login, nil
+}
+func (f *fakeTasks) EODTasks(_ context.Context, _, login string, _ time.Time) ([]Task, []Task, error) {
+	f.gotLogin = login
+	return f.eodOpen, f.eodClosed, f.eodErr
 }
 func (f *fakeTasks) AssignedTasks(ctx context.Context, _, login string) ([]Task, error) {
 	f.gotLogin = login

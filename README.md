@@ -2,7 +2,7 @@
 
 Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approvals and reports — all through the `/att` slash command. Full spec: [attendance-bot-prompt.md](attendance-bot-prompt.md).
 
-**Status: attendance complete; GitHub tasks + EOD reports in progress (phase 1 of 7: GitHub foundation, spec: tasks-eod-prompt.md).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export, the Monday weekly report and WFH requests with approvals.
+**Status: attendance complete; GitHub tasks + EOD reports in progress (phase 2 of 7: end-of-day reports, spec: tasks-eod-prompt.md).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export, the Monday weekly report and WFH requests with approvals.
 
 ## How it works
 
@@ -65,6 +65,8 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att wfh cancel <id>` | Cancel a pending request, or an approved one that hasn't started. |
 | `/att github` | Show your linked GitHub login. Linking is done by an admin (below), so nobody can claim someone else's GitHub account. |
 | `/att tasks` | Your open issues on this team's GitHub Project (not Done): overdue first, then priority, then due date. ⚠️ overdue, 🚧 blocked. |
+| `/att eod` | Your end-of-day report for today in this team. |
+| `/att eod submit` | Open the end-of-day form: for today, or for yesterday until 11:00. |
 | `/att help` | Command list (admin commands shown to admins only). |
 
 **Admin commands** — for system admins (any team) and team admins (their own team only):
@@ -133,6 +135,20 @@ Each team can be linked to a GitHub organization and an organization **Project (
 The bot looks fields and options up **by name** (never hard-coded ids), caches them for 6 hours, and logs a clear error if one is missing. Enable the Project's built-in workflows **Item closed → Status: Done** (and **Pull request merged → Done** for repos that use PRs). Put non-code work in an `operations` repo so every task is an issue.
 
 Repo conventions: one branch per issue named `<number>-description` (e.g. `42-session-timeout`); the final commit on the default branch says `Closes #42`.
+
+## End-of-day reports
+
+Checking out (`/att out` or the 🔴 button) opens an **End of day report** form for the team and day of the session:
+
+- one dropdown per relevant task (*No change / In progress / In review / Blocked / Done*): tasks currently In progress, In review or Blocked on the team's Project, at most 8 (the most recently updated; the form says how many were left out);
+- issues assigned to you that were **closed today** (usually by a `Closes #n` commit) are listed as "✅ Already done today" and recorded as Done;
+- **What I did today** (required, at least 10 characters), **Blockers** and **Plan for tomorrow** (optional).
+
+Without a linked GitHub login, or if GitHub doesn't answer within 1.5 s, the form opens with only the three text fields. Closing the form saves nothing; the check-out reply has a **📝 End-of-day report** button (and `/att eod submit`) to reopen it.
+
+On submit the report is saved and posted as a reply in the team's daily thread in **#attendance** (`📝 EOD reports — Thu 26 Nov`, created by the first report of the day — exactly once, even with simultaneous submissions), with the member's hours and 🏢/🏠 for that day. Submitting again the same day updates the report and edits the same reply. `@channel`/`@all`/`@here` in report text don't notify anyone.
+
+Status choices are stored with the report; writing them to GitHub (Project status, `blocked` label, issue comments, activity summary) comes in phase 3.
 
 ## Scheduled jobs
 

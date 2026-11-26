@@ -141,6 +141,8 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(body.Query, "projectV2(number"):
 			write(http.StatusOK, f.fields)
+		case strings.Contains(body.Query, "closed: search("):
+			write(http.StatusOK, "eod_tasks.json")
 		case strings.Contains(body.Query, "search("):
 			if body.Variables["after"] == nil {
 				write(http.StatusOK, "search_page1.json")
@@ -424,5 +426,32 @@ func TestRateLimitNotRetried(t *testing.T) {
 	}
 	if n := f.count("/graphql"); n != 1 {
 		t.Errorf("rate-limited call retried %d times", n-1)
+	}
+}
+
+func TestEODTasks(t *testing.T) {
+	f, srv := newFake(t)
+	ist := time.FixedZone("IST", 5*3600+1800)
+	day := time.Date(2026, 11, 26, 0, 0, 0, 0, ist)
+	open, closed, err := newTestTasks(t, srv).EODTasks(context.Background(), "A", "Jana-Dev", day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 1 || open[0].Number != 45 || open[0].Status != "In progress" {
+		t.Errorf("open (other project filtered out): %+v", open)
+	}
+	// Closed issues are kept even though their Status is Done.
+	if len(closed) != 1 || closed[0].Number != 42 || closed[0].Status != "Done" {
+		t.Errorf("closed: %+v", closed)
+	}
+	// One round trip for both lists (plus the schema lookup); the closed
+	// range is the IST day.
+	if len(f.queries) != 2 {
+		t.Fatalf("queries: %d", len(f.queries))
+	}
+	q := f.queries[1]
+	if q["open"] != "org:inkyank-org assignee:Jana-Dev is:issue is:open archived:false" ||
+		q["closed"] != "org:inkyank-org assignee:Jana-Dev is:issue is:closed closed:2026-11-26T00:00:00+05:30..2026-11-26T23:59:59+05:30" {
+		t.Errorf("vars: %v", q)
 	}
 }

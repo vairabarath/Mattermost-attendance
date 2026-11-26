@@ -184,6 +184,79 @@ const assignedQuery = `query($q: String!, $after: String) {
   }
 }`
 
+// issueFields is the issue selection shared by the search queries.
+const issueFields = `
+      ... on Issue {
+        number
+        title
+        url
+        updatedAt
+        repository { nameWithOwner }
+        projectItems(first: 20) {
+          nodes {
+            project { id }
+            status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+            priority: fieldValueByName(name: "Priority") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+            due: fieldValueByName(name: "Due date") { ... on ProjectV2ItemFieldDateValue { date } }
+          }
+        }
+      }`
+
+// eodQuery fetches open and closed-today issues in one round trip, to fit
+// the EOD form's time budget.
+const eodQuery = `query($open: String!, $closed: String!) {
+  open: search(type: ISSUE, query: $open, first: 50) { issueCount nodes {` + issueFields + ` } }
+  closed: search(type: ISSUE, query: $closed, first: 50) { nodes {` + issueFields + ` } }
+}`
+
+// EODTasks returns the member's open tasks and the ones closed during the
+// local day starting at dayStart, both limited to the team's Project.
+func (t *Tasks) EODTasks(ctx context.Context, teamID, login string, dayStart time.Time) ([]attendance.Task, []attendance.Task, error) {
+	tp, ok := t.teams[teamID]
+	if !ok {
+		return nil, nil, attendance.ErrGitHubNotSetUp
+	}
+	if !attendance.ValidGitHubLogin(login) {
+		return nil, nil, fmt.Errorf("invalid github login %q", login)
+	}
+	schema, err := t.Schema(ctx, teamID)
+	if err != nil {
+		return nil, nil, err
+	}
+	dayEnd := dayStart.AddDate(0, 0, 1).Add(-time.Second)
+	vars := map[string]any{
+		"open":   fmt.Sprintf("org:%s assignee:%s is:issue is:open archived:false", tp.Org, login),
+		"closed": fmt.Sprintf("org:%s assignee:%s is:issue is:closed closed:%s..%s", tp.Org, login, dayStart.Format(time.RFC3339), dayEnd.Format(time.RFC3339)),
+	}
+	var out struct {
+		Open struct {
+			IssueCount int         `json:"issueCount"`
+			Nodes      []issueNode `json:"nodes"`
+		} `json:"open"`
+		Closed struct {
+			Nodes []issueNode `json:"nodes"`
+		} `json:"closed"`
+	}
+	if err := t.app.GraphQL(ctx, tp.Org, eodQuery, vars, &out, false); err != nil {
+		return nil, nil, err
+	}
+	if out.Open.IssueCount > len(out.Open.Nodes) {
+		t.log.Warn("github: eod open issues truncated", "team_id", teamID, "login", login, "count", out.Open.IssueCount)
+	}
+	var open, closed []attendance.Task
+	for _, n := range out.Open.Nodes {
+		if task, ok := taskFromNode(n, schema.ProjectID, false); ok {
+			open = append(open, task)
+		}
+	}
+	for _, n := range out.Closed.Nodes {
+		if task, ok := taskFromNode(n, schema.ProjectID, true); ok {
+			closed = append(closed, task)
+		}
+	}
+	return open, closed, nil
+}
+
 // maxSearchPages caps how many issues AssignedTasks reads (50 per page).
 const maxSearchPages = 4
 
@@ -240,7 +313,7 @@ func (t *Tasks) AssignedTasks(ctx context.Context, teamID, login string) ([]atte
 			return nil, err
 		}
 		for _, n := range p.Search.Nodes {
-			if task, ok := taskFromNode(n, schema.ProjectID); ok {
+			if task, ok := taskFromNode(n, schema.ProjectID, false); ok {
 				out = append(out, task)
 			}
 		}
@@ -253,8 +326,9 @@ func (t *Tasks) AssignedTasks(ctx context.Context, teamID, login string) ([]atte
 	return out, nil
 }
 
-// taskFromNode keeps an issue only if it's on projectID and not Done.
-func taskFromNode(n issueNode, projectID string) (attendance.Task, bool) {
+// taskFromNode keeps an issue only if it's on projectID (and, unless
+// includeDone, not Done).
+func taskFromNode(n issueNode, projectID string, includeDone bool) (attendance.Task, bool) {
 	if n.Number == 0 { // a search hit that isn't an issue
 		return attendance.Task{}, false
 	}
@@ -275,7 +349,7 @@ func taskFromNode(n issueNode, projectID string) (attendance.Task, bool) {
 		if it.Due != nil {
 			task.Due = strings.TrimSpace(it.Due.Date)
 		}
-		if task.Status == attendance.StatusDone {
+		if task.Status == attendance.StatusDone && !includeDone {
 			return attendance.Task{}, false
 		}
 		return task, true

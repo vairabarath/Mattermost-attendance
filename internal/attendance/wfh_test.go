@@ -127,6 +127,9 @@ func (p *fakePoster) UpdatePost(context.Context, string, string, []mattermost.At
 	return nil
 }
 func (p *fakePoster) EphemeralPost(context.Context, string, string, string) error { return nil }
+func (p *fakePoster) CreateReply(context.Context, string, string, string) (string, error) {
+	return "reply1", nil
+}
 func (p *fakePoster) DirectMessage(_ context.Context, _ string, msg string) error {
 	p.dms = append(p.dms, msg)
 	return nil
