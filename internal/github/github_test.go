@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -64,6 +65,10 @@ type fakeGitHub struct {
 	members      map[string]int    // login → status for /orgs/x/members/login
 	users        map[string]string // lower(login) → fixture
 	queries      []map[string]any  // /graphql variables seen
+	// extra, if set, may answer a token-authenticated request first
+	// (return true when handled). body is the request body.
+	extra func(w http.ResponseWriter, r *http.Request, body []byte) bool
+	log   []string // "METHOD path" of requests extra handled
 }
 
 func newFake(t *testing.T) (*fakeGitHub, *httptest.Server) {
@@ -116,6 +121,16 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		f.t.Errorf("%s: wrong auth header", r.URL.Path)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
+	}
+	if f.extra != nil {
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if f.extra(w, r, body) {
+			f.mu.Lock()
+			f.log = append(f.log, r.Method+" "+r.URL.RequestURI())
+			f.mu.Unlock()
+			return
+		}
 	}
 	switch {
 	case r.URL.Path == "/graphql":

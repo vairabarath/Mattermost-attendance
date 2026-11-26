@@ -85,8 +85,10 @@ func run(log *slog.Logger) error {
 	}
 	if tasks := newTaskSource(cfg, log); tasks != nil {
 		svc.Tasks = tasks
+		svc.Writer = tasks
 		go tasks.Warm(ctx)
 	}
+	svc.StartEODSync(ctx)
 	jobs := &attendance.Jobs{
 		Store:      db,
 		Roster:     mm,
@@ -100,6 +102,7 @@ func run(log *slog.Logger) error {
 		Loc:        cfg.Location,
 		Log:        log.With("component", "jobs"),
 		Now:        time.Now,
+		EODRetry:   svc.RetryEODSyncs,
 	}
 	stopJobs := jobs.Start(ctx)
 	defer stopJobs()

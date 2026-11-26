@@ -76,6 +76,9 @@ type Jobs struct {
 	Loc        *time.Location
 	Log        *slog.Logger
 	Now        func() time.Time
+
+	// EODRetry retries GitHub syncs of end-of-day reports (every 15 min).
+	EODRetry func(ctx context.Context)
 }
 
 // dailyJob is a job that runs once per day at a fixed local time.
@@ -119,6 +122,11 @@ func (j *Jobs) Start(ctx context.Context) func() {
 	// Hourly at :05, every day including weekends and holidays.
 	if _, err := c.AddFunc("5 * * * *", func() { j.AutoClose(ctx, j.Now()) }); err != nil {
 		j.Log.Error("schedule job", "job", "auto_close", "err", err)
+	}
+	if j.EODRetry != nil {
+		if _, err := c.AddFunc("*/15 * * * *", func() { j.EODRetry(ctx) }); err != nil {
+			j.Log.Error("schedule job", "job", "eod_sync_retry", "err", err)
+		}
 	}
 	c.Start()
 

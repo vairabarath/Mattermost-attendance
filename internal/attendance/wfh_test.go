@@ -130,6 +130,9 @@ func (p *fakePoster) EphemeralPost(context.Context, string, string, string) erro
 func (p *fakePoster) CreateReply(context.Context, string, string, string) (string, error) {
 	return "reply1", nil
 }
+func (p *fakePoster) Permalink(_ context.Context, team, post string) (string, error) {
+	return "https://chat.example/" + team + "/pl/" + post, nil
+}
 func (p *fakePoster) DirectMessage(_ context.Context, _ string, msg string) error {
 	p.dms = append(p.dms, msg)
 	return nil

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // Dialog is an interactive dialog (form).
@@ -37,6 +39,7 @@ type DialogElement struct {
 	Default     string `json:"default,omitempty"`
 	MaxLength   int    `json:"max_length,omitempty"`
 	MinLength   int    `json:"min_length,omitempty"`
+	MultiSelect bool   `json:"multiselect,omitempty"` // select only; submits a list of values
 
 	Options []DialogOption `json:"options,omitempty"`
 }
@@ -120,4 +123,42 @@ func (c *Client) EphemeralPost(ctx context.Context, userID, channelID, message s
 		return err
 	}
 	return c.do(ctx, http.MethodPost, "/api/v4/posts/ephemeral", bytes.NewReader(body), nil)
+}
+
+// Permalink returns a post's web link, e.g.
+// https://chat.example.com/myteam/pl/<post id>. The site URL and team
+// names are fetched once and cached.
+func (c *Client) Permalink(ctx context.Context, teamID, postID string) (string, error) {
+	c.linkMu.Lock()
+	site, name := c.siteURL, c.teamNames[teamID]
+	c.linkMu.Unlock()
+	if site == "" {
+		var cfg struct {
+			SiteURL string `json:"SiteURL"`
+		}
+		if err := c.do(ctx, http.MethodGet, "/api/v4/config/client?format=old", nil, &cfg); err != nil {
+			return "", err
+		}
+		if cfg.SiteURL == "" {
+			return "", errors.New("mattermost has no SiteURL configured")
+		}
+		site = strings.TrimRight(cfg.SiteURL, "/")
+	}
+	if name == "" {
+		var t struct {
+			Name string `json:"name"`
+		}
+		if err := c.do(ctx, http.MethodGet, "/api/v4/teams/"+url.PathEscape(teamID), nil, &t); err != nil {
+			return "", err
+		}
+		name = t.Name
+	}
+	c.linkMu.Lock()
+	c.siteURL = site
+	if c.teamNames == nil {
+		c.teamNames = map[string]string{}
+	}
+	c.teamNames[teamID] = name
+	c.linkMu.Unlock()
+	return site + "/" + url.PathEscape(name) + "/pl/" + url.PathEscape(postID), nil
 }

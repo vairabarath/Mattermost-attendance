@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,10 @@ type Client struct {
 	token   string
 	http    *http.Client
 	dm      dmCache
+
+	linkMu    sync.Mutex // guards siteURL and teamNames (Permalink)
+	siteURL   string
+	teamNames map[string]string
 }
 
 // NewClient builds a client. The token is never logged.

@@ -24,8 +24,10 @@ const (
 
 	// maxEODSelects is how many task dropdowns the form shows (spec §7.2).
 	maxEODSelects = 8
-	minDidLen     = 10
-	maxEODText    = 2000
+	// maxEODOthers caps the "Other tasks I finished" choices.
+	maxEODOthers = 25
+	minDidLen    = 10
+	maxEODText   = 2000
 	// eodLateUntil: yesterday's report can still be submitted until 11:00.
 	eodLateUntil = 11
 	// githubDialogBudget keeps the form within Mattermost's trigger-id
@@ -64,6 +66,12 @@ type EODReport struct {
 	ReplyPostID string
 	SubmittedAt time.Time
 	UpdatedAt   time.Time
+
+	// Phase 3 (GitHub sync).
+	SyncError     string
+	SyncAttempts  int
+	Activity      *Activity
+	BlockerPostID string
 }
 
 // EODStore persists reports and the daily threads.
@@ -186,9 +194,9 @@ func (s *Service) openEODForm(ctx context.Context, userID, teamID, day, triggerI
 		return errors.New("no trigger id")
 	}
 	var (
-		selects, done []Task
-		omitted       int
-		note          string
+		selects, done, others []Task
+		omitted               int
+		note                  string
 	)
 	ms, err := s.Store.GetMember(ctx, userID)
 	if err != nil {
@@ -208,6 +216,7 @@ func (s *Service) openEODForm(ctx context.Context, userID, teamID, day, triggerI
 			note = "_Couldn't load your GitHub tasks right now; you can still submit the report._"
 		} else {
 			selects, done, omitted = RelevantIssues(open, closed, nil)
+			others = otherTasks(open, selects, done, s.Now().In(s.Loc).Format(DayFormat))
 		}
 	}
 
@@ -215,8 +224,29 @@ func (s *Service) openEODForm(ctx context.Context, userID, teamID, day, triggerI
 	if err != nil {
 		return err
 	}
-	d := s.eodDialog(userID, teamID, day, selects, done, omitted, note, prev)
+	d := s.eodDialog(userID, teamID, day, selects, done, others, omitted, note, prev)
 	return s.Posts.OpenDialog(ctx, triggerID, s.DialogURL, d)
+}
+
+// otherTasks are the member's open tasks without a dropdown, offered in
+// "Other tasks I finished" (so a finished Todo task can be reported).
+func otherTasks(open, selects, done []Task, today string) []Task {
+	skip := map[string]bool{}
+	for _, t := range append(append([]Task(nil), selects...), done...) {
+		skip[t.URL] = true
+	}
+	var out []Task
+	for _, t := range open {
+		if !skip[t.URL] {
+			skip[t.URL] = true
+			out = append(out, t)
+		}
+	}
+	SortTasks(out, today)
+	if len(out) > maxEODOthers {
+		out = out[:maxEODOthers]
+	}
+	return out
 }
 
 // dayStart is the start of day (YYYY-MM-DD) in the configured timezone.
@@ -227,7 +257,7 @@ func (s *Service) dayStart(day string) time.Time {
 
 // eodDialog builds the form. prev (a report already submitted for the
 // day) pre-fills it, so a resubmission edits rather than starts over.
-func (s *Service) eodDialog(userID, teamID, day string, selects, done []Task, omitted int, note string, prev *EODReport) mattermost.Dialog {
+func (s *Service) eodDialog(userID, teamID, day string, selects, done, others []Task, omitted int, note string, prev *EODReport) mattermost.Dialog {
 	var intro []string
 	when := s.dayStart(day).Format("Mon 2 Jan")
 	intro = append(intro, fmt.Sprintf("**%s** · %s", s.Teams.TeamName(teamID), when))
@@ -280,6 +310,21 @@ func (s *Service) eodDialog(userID, teamID, day string, selects, done []Task, om
 			Options:     options,
 		})
 	}
+	if len(others) > 0 {
+		var opts []mattermost.DialogOption
+		var defs []string
+		for i, t := range others {
+			opts = append(opts, mattermost.DialogOption{Text: clip(fmt.Sprintf("#%d %s", t.Number, t.Title), 80), Value: strconv.Itoa(i)})
+			if prevStatus[t.URL] == StatusDone {
+				defs = append(defs, strconv.Itoa(i))
+			}
+		}
+		elements = append(elements, mattermost.DialogElement{
+			DisplayName: "Other tasks I finished", Name: "others", Type: "select", MultiSelect: true, Optional: true,
+			Default: strings.Join(defs, ","), Options: opts,
+			HelpText: "Finished something that isn't listed above? Pick it here; it's recorded as Done.",
+		})
+	}
 	elements = append(elements,
 		mattermost.DialogElement{DisplayName: "What I did today", Name: "did", Type: "textarea",
 			MinLength: minDidLen, MaxLength: maxEODText, Default: did,
@@ -292,6 +337,7 @@ func (s *Service) eodDialog(userID, teamID, day string, selects, done []Task, om
 
 	items, _ := json.Marshal(toFormIssues(selects))
 	doneJSON, _ := json.Marshal(toFormIssues(done))
+	othersJSON, _ := json.Marshal(toFormIssues(others))
 	return mattermost.Dialog{
 		CallbackID:       dlgEOD,
 		Title:            "End of day report",
@@ -299,10 +345,37 @@ func (s *Service) eodDialog(userID, teamID, day string, selects, done []Task, om
 		SubmitLabel:      "Submit",
 		State: s.signedState(map[string]string{
 			"k": dlgEOD, "u": userID, "t": teamID, "d": day,
-			"items": string(items), "done": string(doneJSON),
+			"items": string(items), "done": string(doneJSON), "others": string(othersJSON),
 		}),
 		Elements: elements,
 	}
+}
+
+// multiValues reads a multi-select submission: a list of strings (what
+// Mattermost sends) or a comma-separated string.
+func multiValues(v any) []string {
+	var out []string
+	switch x := v.(type) {
+	case []any:
+		for _, e := range x {
+			if s, ok := e.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+	case []string:
+		for _, s := range x {
+			if strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+	case string:
+		for _, s := range strings.Split(x, ",") {
+			if strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+	}
+	return out
 }
 
 // clip shortens s to n runes, ending with "…" when cut.
@@ -326,8 +399,11 @@ func (s *Service) submitEOD(ctx context.Context, d DialogSubmit) (DialogResult, 
 	if len([]rune(did)) < minDidLen {
 		return DialogResult{Errors: map[string]string{"did": fmt.Sprintf("Write at least %d characters.", minDidLen)}}, nil
 	}
-	var selects, done []formIssue
+	var selects, done, others []formIssue
 	if json.Unmarshal([]byte(d.Fields["items"]), &selects) != nil || json.Unmarshal([]byte(d.Fields["done"]), &done) != nil {
+		return DialogResult{Error: "This form is invalid. Please run `/att eod submit`."}, nil
+	}
+	if o := d.Fields["others"]; o != "" && json.Unmarshal([]byte(o), &others) != nil {
 		return DialogResult{Error: "This form is invalid. Please run `/att eod submit`."}, nil
 	}
 
@@ -351,14 +427,37 @@ func (s *Service) submitEOD(ctx context.Context, d DialogSubmit) (DialogResult, 
 		it.Synced = !it.Changed()
 		items = append(items, it)
 	}
+	seenOther := map[int]bool{}
+	for _, v := range multiValues(d.Submission["others"]) {
+		i, err := strconv.Atoi(v)
+		if err != nil || i < 0 || i >= len(others) {
+			return DialogResult{Errors: map[string]string{"others": "Pick tasks from the list."}}, nil
+		}
+		if seenOther[i] {
+			continue
+		}
+		seenOther[i] = true
+		fi := others[i]
+		items = append(items, EODItem{IssueURL: fi.URL, Title: fi.Title, OldStatus: fi.Status, NewStatus: StatusDone, Synced: fi.Status == StatusDone})
+	}
 	for _, fi := range done { // closed today: already Done on GitHub
 		items = append(items, EODItem{IssueURL: fi.URL, Title: fi.Title, OldStatus: fi.Status, NewStatus: StatusDone, Synced: true})
 	}
 
+	ms, err := s.Store.GetMember(ctx, d.UserID)
+	if err != nil {
+		return DialogResult{}, err
+	}
+	// GitHub work to do (status changes, activity) only with a linked login
+	// on a team with GitHub; otherwise the report is final as saved.
+	sync := "synced"
+	if ms != nil && ms.GitHubLogin != "" && s.Tasks != nil && s.Tasks.Configured(teamID) && s.Writer != nil {
+		sync = "pending"
+	}
 	r, err := s.Store.SaveEODReport(ctx, EODReport{
 		UserID: d.UserID, TeamID: teamID, Day: day, DidToday: truncate(did, maxEODText),
 		Blockers: truncate(str("blockers"), maxEODText), Tomorrow: truncate(str("tomorrow"), maxEODText),
-		Items: items,
+		Items: items, SyncStatus: sync,
 	})
 	if err != nil {
 		return DialogResult{}, err
@@ -368,6 +467,19 @@ func (s *Service) submitEOD(ctx context.Context, d DialogSubmit) (DialogResult, 
 	if err := s.postEODReply(ctx, r); err != nil {
 		s.Log.Error("eod: posting to thread failed", "team_id", teamID, "user_id", d.UserID, "err", err)
 		confirm = "📝 End-of-day report saved, but it couldn't be posted in ~attendance right now. It's kept; `/att eod` shows it."
+	}
+	if fresh, err := s.Store.GetEODReport(ctx, d.UserID, teamID, day); err == nil && fresh != nil {
+		username := d.UserID
+		if ms != nil {
+			username = ms.Username
+		}
+		if err := s.alertBlockers(ctx, *fresh, username); err != nil {
+			s.Log.Error("eod: blocker alert failed", "team_id", teamID, "user_id", d.UserID, "err", err)
+		}
+	}
+	if sync == "pending" {
+		confirm += " Task updates are being written to GitHub."
+		s.enqueueEODSync(r.ID)
 	}
 	if s.Posts != nil && d.ChannelID != "" {
 		if err := s.Posts.EphemeralPost(ctx, d.UserID, d.ChannelID, confirm); err != nil {
@@ -491,6 +603,9 @@ func RenderEOD(name string, net time.Duration, modes map[string]bool, r EODRepor
 			b.WriteString("**" + f.label + ":** " + t + "\n")
 		}
 	}
+	if gh := RenderActivity(r.Activity); gh != "" {
+		b.WriteString(gh + "\n")
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -535,8 +650,8 @@ func (s *Service) eodShow(ctx context.Context, c Command) (Reply, error) {
 	if err != nil {
 		return Reply{}, err
 	}
-	return text(fmt.Sprintf("#### Your end-of-day report — %s, %s\n%s\n\n_Submitted %s. Run `/att eod submit` to change it._",
-		s.Teams.TeamName(c.TeamID), s.dayStart(today).Format("Mon 2 Jan"), msg, s.fmtClock(r.UpdatedAt))), nil
+	return text(fmt.Sprintf("#### Your end-of-day report — %s, %s\n%s\n\n_%s · Submitted %s. Run `/att eod submit` to change it._",
+		s.Teams.TeamName(c.TeamID), s.dayStart(today).Format("Mon 2 Jan"), msg, syncLine(*r), s.fmtClock(r.UpdatedAt))), nil
 }
 
 // eodButton is the personal "📝 End-of-day report" button shown after

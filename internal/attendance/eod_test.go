@@ -115,7 +115,7 @@ func (f *eodStore) CloseOpenSession(_ context.Context, _ string, out time.Time, 
 func (f *eodStore) SaveEODReport(_ context.Context, r EODReport) (EODReport, error) {
 	k := r.UserID + "/" + r.TeamID + "/" + r.Day
 	if old, ok := f.reports[k]; ok {
-		r.ID, r.ReplyPostID = old.ID, old.ReplyPostID
+		r.ID, r.ReplyPostID, r.BlockerPostID, r.Activity = old.ID, old.ReplyPostID, old.BlockerPostID, old.Activity
 	} else {
 		f.nextID++
 		r.ID = f.nextID
@@ -141,24 +141,84 @@ func (f *eodStore) EnsureEODThread(_ context.Context, team, day string, create f
 	}
 	return id, err
 }
-func (f *eodStore) EnsureEODReply(_ context.Context, id int64, create func() (string, error)) (string, bool, error) {
+func (f *eodStore) byID(id int64) *EODReport {
 	for _, r := range f.reports {
 		if r.ID == id {
-			if r.ReplyPostID != "" {
-				return r.ReplyPostID, false, nil
-			}
-			pid, err := create()
-			r.ReplyPostID = pid
-			return pid, true, err
+			return r
 		}
 	}
-	return "", false, errors.New("no report")
+	return nil
+}
+func (f *eodStore) EnsureEODReply(_ context.Context, id int64, create func() (string, error)) (string, bool, error) {
+	r := f.byID(id)
+	if r == nil {
+		return "", false, errors.New("no report")
+	}
+	if r.ReplyPostID != "" {
+		return r.ReplyPostID, false, nil
+	}
+	pid, err := create()
+	r.ReplyPostID = pid
+	return pid, true, err
+}
+func (f *eodStore) EnsureEODBlockerPost(_ context.Context, id int64, create func() (string, error)) (string, bool, error) {
+	r := f.byID(id)
+	if r.BlockerPostID != "" {
+		return r.BlockerPostID, false, nil
+	}
+	pid, err := create()
+	r.BlockerPostID = pid
+	return pid, true, err
+}
+func (f *eodStore) GetEODReportByID(_ context.Context, id int64) (*EODReport, error) {
+	if r := f.byID(id); r != nil {
+		c := *r
+		c.Items = append([]EODItem(nil), r.Items...)
+		return &c, nil
+	}
+	return nil, nil
+}
+func (f *eodStore) ClaimEODSync(_ context.Context, id int64, _ time.Duration) (*EODReport, error) {
+	r := f.byID(id)
+	if r == nil || r.SyncStatus == "synced" {
+		return nil, nil
+	}
+	r.SyncAttempts++
+	c := *r
+	c.Items = append([]EODItem(nil), r.Items...)
+	return &c, nil
+}
+func (f *eodStore) MarkEODItemSynced(_ context.Context, id int64, url string) error {
+	r := f.byID(id)
+	for i := range r.Items {
+		if r.Items[i].IssueURL == url {
+			r.Items[i].Synced = true
+		}
+	}
+	return nil
+}
+func (f *eodStore) FinishEODSync(_ context.Context, id int64, status, syncErr string, act *Activity) error {
+	r := f.byID(id)
+	r.SyncStatus, r.SyncError = status, syncErr
+	if act != nil {
+		r.Activity = act
+	}
+	return nil
+}
+func (f *eodStore) PendingEODSyncs(context.Context, int, time.Time) ([]int64, error) {
+	var ids []int64
+	for _, r := range f.reports {
+		if r.SyncStatus != "synced" && r.SyncAttempts < maxSyncAttempts {
+			ids = append(ids, r.ID)
+		}
+	}
+	return ids, nil
 }
 
 type eodPoster struct {
 	fakePoster
 	dialogs   []mattermost.Dialog
-	roots     []string
+	roots     []string // posts without a thread (EOD roots and admin alerts)
 	replies   []string
 	updates   []string
 	ephemeral []string
@@ -220,9 +280,12 @@ func TestCheckOutOpensEODForm(t *testing.T) {
 	if d.Title != "End of day report" || !strings.Contains(d.IntroductionText, "✅ Already done today: #42") {
 		t.Errorf("dialog: %q / %q", d.Title, d.IntroductionText)
 	}
-	// #45 (In progress) gets a dropdown; #46 (Todo, not picked) doesn't.
-	if len(d.Elements) != 4 || d.Elements[0].Type != "select" || d.Elements[0].DisplayName != "#45 Task 45" ||
-		d.Elements[0].Default != noChange || d.Elements[1].Name != "did" || d.Elements[1].MinLength != minDidLen {
+	// #45 (In progress) gets a dropdown; #46 (Todo) is offered under
+	// "Other tasks I finished".
+	if len(d.Elements) != 5 || d.Elements[0].Type != "select" || d.Elements[0].DisplayName != "#45 Task 45" ||
+		d.Elements[0].Default != noChange || d.Elements[1].Name != "others" || !d.Elements[1].MultiSelect ||
+		len(d.Elements[1].Options) != 1 || d.Elements[1].Options[0].Text != "#46 Task 46" ||
+		d.Elements[2].Name != "did" || d.Elements[2].MinLength != minDidLen {
 		t.Errorf("elements: %+v", d.Elements)
 	}
 	for _, e := range d.Elements {
@@ -386,4 +449,8 @@ func TestEODNoChannelStillSaves(t *testing.T) {
 	if st.reports["u/A/2026-11-26"] == nil || len(p.replies) != 0 || !strings.Contains(p.ephemeral[0], "couldn't be posted") {
 		t.Errorf("saved=%v replies=%d msg=%q", st.reports["u/A/2026-11-26"] != nil, len(p.replies), p.ephemeral)
 	}
+}
+
+func svcTeam(attendance, admin string) config.Team {
+	return config.Team{ID: "A", AttendanceChannelID: attendance, AdminChannelID: admin}
 }

@@ -78,6 +78,8 @@ type Poster interface {
 	UpdatePost(ctx context.Context, postID, message string, atts []mattermost.Attachment) error
 	EphemeralPost(ctx context.Context, userID, channelID, message string) error
 	CreateReply(ctx context.Context, channelID, rootID, message string) (string, error)
+	// Permalink is a post's web link (for alerts).
+	Permalink(ctx context.Context, teamID, postID string) (string, error)
 	DirectMessage(ctx context.Context, userID, message string) error
 	OpenDialog(ctx context.Context, triggerID, submitURL string, d mattermost.Dialog) error
 }

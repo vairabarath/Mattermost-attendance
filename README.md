@@ -2,7 +2,7 @@
 
 Self-hosted attendance for Mattermost: check-in/out, breaks, hours, WFH approvals and reports — all through the `/att` slash command. Full spec: [attendance-bot-prompt.md](attendance-bot-prompt.md).
 
-**Status: attendance complete; GitHub tasks + EOD reports in progress (phase 2 of 7: end-of-day reports, spec: tasks-eod-prompt.md).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export, the Monday weekly report and WFH requests with approvals.
+**Status: attendance complete; GitHub tasks + EOD reports in progress (phase 3 of 7: end-of-day reports synced to GitHub, spec: tasks-eod-prompt.md).** Available now: check in/out, breaks, buttons, `/att status`, custom status, `/att hours`, scheduled reminders, daily summaries, auto-close, holidays, per-member settings, admin reports, `/att fix`, CSV export, the Monday weekly report and WFH requests with approvals.
 
 ## How it works
 
@@ -142,13 +142,34 @@ Checking out (`/att out` or the 🔴 button) opens an **End of day report** form
 
 - one dropdown per relevant task (*No change / In progress / In review / Blocked / Done*): tasks currently In progress, In review or Blocked on the team's Project, at most 8 (the most recently updated; the form says how many were left out);
 - issues assigned to you that were **closed today** (usually by a `Closes #n` commit) are listed as "✅ Already done today" and recorded as Done;
+- **Other tasks I finished** (multi-select): the member's other open tasks, Todo included (up to 25), so a finished task that had no dropdown can be reported; each one picked is recorded as Done;
 - **What I did today** (required, at least 10 characters), **Blockers** and **Plan for tomorrow** (optional).
 
 Without a linked GitHub login, or if GitHub doesn't answer within 1.5 s, the form opens with only the three text fields. Closing the form saves nothing; the check-out reply has a **📝 End-of-day report** button (and `/att eod submit`) to reopen it.
 
 On submit the report is saved and posted as a reply in the team's daily thread in **#attendance** (`📝 EOD reports — Thu 26 Nov`, created by the first report of the day — exactly once, even with simultaneous submissions), with the member's hours and 🏢/🏠 for that day. Submitting again the same day updates the report and edits the same reply. `@channel`/`@all`/`@here` in report text don't notify anyone.
 
-Status choices are stored with the report; writing them to GitHub (Project status, `blocked` label, issue comments, activity summary) comes in phase 3.
+### Syncing to GitHub
+
+Right after saving (in the background, never blocking the form), each **changed** task is written to GitHub:
+
+1. the bot checks the issue is **assigned to the member** and in the team's org; otherwise it's skipped (noted in `/att eod`);
+2. sets the issue's **Status** on the team's Project (adding it to the Project if needed);
+3. adds the `blocked` label for Blocked, removes it otherwise (the label is created in the repo if missing);
+4. **closes** the issue for Done (as completed);
+5. comments `📝 EOD 2026-11-26 (@jana): **Done** — <first 300 characters of "What I did">` (as the App, `<app>[bot]`; `@` in the text doesn't mention GitHub users).
+
+Then it attaches the member's **GitHub activity** for that IST day, shown as the report's last line, e.g. `GitHub: 6 commits to default branches · 1 issue closed · branches: 42, 45` (PR and review counts only when non-zero):
+
+- **commits**: GitHub commit search in the org, by author, committed during the day. Commit search only covers **default branches**, which fits merging locally into `main`. Commits are matched by GitHub login, so commits made with a git email that isn't added to the member's GitHub account **aren't counted** (`git config user.email` must be one of their GitHub emails);
+- **branches**: in up to 10 repos pushed that day, branches named `<issue>-…` with the member's commits that day (`42-session-timeout` → #42; other names are ignored);
+- **issues closed** assigned to them; **PRs** opened / merged; PRs they **reviewed** that were updated that day (an approximation).
+
+A failed sync never loses the report: `sync_status` becomes `failed`, `/att eod` shows why, and a job retries every 15 minutes (6 tries in total, then admins get one message in #attendance-admin). Only one sync of a report runs at a time (a 5-minute lease). Resubmitting resets the tries.
+
+### Blocker alerts
+
+A report with **Blockers** filled in or a task set to **Blocked** posts an alert in **#attendance-admin** with the blocker text, the blocked tasks and a link to the report. Resubmitting edits the same alert (or marks it "no longer lists blockers").
 
 ## Scheduled jobs
 

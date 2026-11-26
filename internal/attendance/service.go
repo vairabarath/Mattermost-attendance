@@ -37,6 +37,7 @@ type Store interface {
 	ReportStore
 	WFHStore
 	EODStore
+	EODSyncStore
 	// MemberRefreshedAt reports when a member's profile was last synced.
 	MemberRefreshedAt(ctx context.Context, userID string) (t time.Time, found bool, err error)
 	UpsertMember(ctx context.Context, userID, username, displayName string) error
@@ -108,9 +109,12 @@ type Service struct {
 	DialogURL string                 // where Mattermost posts dialog submissions
 	TeamCfg   map[string]config.Team // channel ids per team
 	Tasks     TaskSource             // nil: GitHub features off
-	Loc       *time.Location
-	Log       *slog.Logger
-	Now       func() time.Time
+	Writer    TaskWriter             // nil: EOD reports aren't written to GitHub
+
+	eodQueue chan int64 // see StartEODSync
+	Loc      *time.Location
+	Log      *slog.Logger
+	Now      func() time.Time
 }
 
 const (

@@ -540,3 +540,71 @@ func TestIntegrationEODThreadConcurrent(t *testing.T) {
 		t.Errorf("%d threads, want 2", n)
 	}
 }
+
+func TestIntegrationEODSyncLease(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	r, err := s.SaveEODReport(ctx, attendance.EODReport{UserID: u1, TeamID: teamA, Day: "2026-11-26", DidToday: "Did the work",
+		SyncStatus: "pending", Items: []attendance.EODItem{
+			{IssueURL: "https://github.com/o/r/issues/1", OldStatus: "Todo", NewStatus: "Done"},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	since := time.Now().Add(-time.Hour)
+	if ids, _ := s.PendingEODSyncs(ctx, 6, since); len(ids) != 1 || ids[0] != r.ID {
+		t.Fatalf("pending: %v", ids)
+	}
+	claimed, err := s.ClaimEODSync(ctx, r.ID, time.Minute)
+	if err != nil || claimed == nil || claimed.SyncAttempts != 1 || len(claimed.Items) != 1 {
+		t.Fatalf("claim: %v %+v", err, claimed)
+	}
+	// Leased: neither a second claim nor the retry job may take it.
+	if again, _ := s.ClaimEODSync(ctx, r.ID, time.Minute); again != nil {
+		t.Error("claimed twice while leased")
+	}
+	if ids, _ := s.PendingEODSyncs(ctx, 6, since); len(ids) != 0 {
+		t.Errorf("leased report listed as pending: %v", ids)
+	}
+	if err := s.MarkEODItemSynced(ctx, r.ID, "https://github.com/o/r/issues/1"); err != nil {
+		t.Fatal(err)
+	}
+	act := &attendance.Activity{Commits: 4, Branches: []attendance.BranchWork{{Repo: "o/r", Branch: "1-x", Issue: 1}}}
+	if err := s.FinishEODSync(ctx, r.ID, "failed", "activity: boom", act); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetEODReportByID(ctx, r.ID)
+	if got.SyncStatus != "failed" || got.SyncError != "activity: boom" || !got.Items[0].Synced ||
+		got.Activity == nil || got.Activity.Commits != 4 || got.Activity.Branches[0].Issue != 1 {
+		t.Fatalf("after finish: %+v %+v", got, got.Activity)
+	}
+	// Released: the retry job sees it again, until the attempt limit.
+	if ids, _ := s.PendingEODSyncs(ctx, 6, since); len(ids) != 1 {
+		t.Errorf("failed report not retried: %v", ids)
+	}
+	if ids, _ := s.PendingEODSyncs(ctx, 1, since); len(ids) != 0 {
+		t.Errorf("attempt limit ignored: %v", ids)
+	}
+	// A nil activity keeps the stored one; a resubmission resets attempts.
+	_ = s.FinishEODSync(ctx, r.ID, "synced", "", nil)
+	if got, _ := s.GetEODReportByID(ctx, r.ID); got.Activity == nil || got.SyncStatus != "synced" {
+		t.Errorf("activity lost: %+v", got)
+	}
+	if again, _ := s.ClaimEODSync(ctx, r.ID, time.Minute); again != nil {
+		t.Error("synced report claimed")
+	}
+	r2, _ := s.SaveEODReport(ctx, attendance.EODReport{UserID: u1, TeamID: teamA, Day: "2026-11-26", DidToday: "Did more", SyncStatus: "pending"})
+	if got, _ := s.GetEODReportByID(ctx, r2.ID); got.SyncAttempts != 0 || got.SyncStatus != "pending" || got.Activity == nil {
+		t.Errorf("resubmit: %+v", got)
+	}
+	// The blocker alert post is created once.
+	calls := 0
+	for i := 0; i < 2; i++ {
+		id, _, err := s.EnsureEODBlockerPost(ctx, r.ID, func() (string, error) { calls++; return "alert-1", nil })
+		if err != nil || id != "alert-1" {
+			t.Fatalf("blocker post: %q %v", id, err)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("alert created %d times", calls)
+	}
+}
