@@ -169,6 +169,7 @@ func newTaskService() (*Service, *ghStore, *fakeTasks) {
 		"jana":      {UserID: "jana", Username: "jana"},
 		"plain":     {UserID: "plain", Username: "plain", GitHubLogin: "taken-login"},
 		"teamadmin": {UserID: "teamadmin", Username: "barath"},
+		"sys":       {UserID: "sys", Username: "root"},
 	}}
 	ft := &fakeTasks{configured: map[string]bool{"A": true}, verify: map[string]error{}}
 	r := roles()
@@ -189,16 +190,31 @@ func run(svc *Service, team, user, cmd string) string {
 func TestGitHubLinkCommand(t *testing.T) {
 	svc, st, ft := newTaskService()
 
-	if out := run(svc, "A", "jana", "github"); !strings.Contains(out, "isn't linked") {
+	if out := run(svc, "A", "jana", "github"); !strings.Contains(out, "isn't linked yet") || !strings.Contains(out, "/att member @you github") {
 		t.Errorf("show unlinked: %q", out)
 	}
-	if out := run(svc, "A", "jana", "github @jana-dev"); !strings.Contains(out, "Linked to GitHub **Jana-Dev**") {
-		t.Fatalf("link: %q", out)
+	// Members can't link themselves: they could claim anyone's login.
+	for _, cmd := range []string{"github jana-dev", "github @someone-else"} {
+		if out := run(svc, "A", "jana", cmd); !strings.Contains(out, "🔒 Only admins can link GitHub accounts") {
+			t.Errorf("member %q: %q", cmd, out)
+		}
 	}
-	if st.members["jana"].GitHubLogin != "Jana-Dev" || len(st.audits) != 1 || st.audits[0].Action != "github_link" {
-		t.Errorf("stored %q, audits %+v", st.members["jana"].GitHubLogin, st.audits)
+	if st.members["jana"].GitHubLogin != "" || len(st.audits) != 0 {
+		t.Fatalf("member self-link changed something: %q %+v", st.members["jana"].GitHubLogin, st.audits)
 	}
-	if out := run(svc, "A", "jana", "github"); !strings.Contains(out, "Jana-Dev") {
+	// A team admin of A is a member in B: refused there too.
+	if out := run(svc, "B", "teamadmin", "github barath-gh"); !strings.Contains(out, "🔒") {
+		t.Errorf("admin of another team: %q", out)
+	}
+
+	// Admins may link themselves.
+	if out := run(svc, "A", "teamadmin", "github @barath-gh"); !strings.Contains(out, "Linked to GitHub **barath-gh**") {
+		t.Fatalf("admin self-link: %q", out)
+	}
+	if st.members["teamadmin"].GitHubLogin != "barath-gh" || len(st.audits) != 1 || st.audits[0].Action != "github_link" {
+		t.Errorf("stored %q, audits %+v", st.members["teamadmin"].GitHubLogin, st.audits)
+	}
+	if out := run(svc, "A", "teamadmin", "github"); !strings.Contains(out, "barath-gh") || !strings.Contains(out, "ask an admin") {
 		t.Errorf("show linked: %q", out)
 	}
 
@@ -214,14 +230,14 @@ func TestGitHubLinkCommand(t *testing.T) {
 	ft.verify["outsider"] = ErrNotOrgMember
 	ft.verify["flaky"] = errors.New("timeout")
 	for cmd, want := range cases {
-		if out := run(svc, "A", "jana", cmd); !strings.Contains(out, want) {
+		if out := run(svc, "A", "teamadmin", cmd); !strings.Contains(out, want) {
 			t.Errorf("%s: %q, want %q", cmd, out, want)
 		}
 	}
-	if st.members["jana"].GitHubLogin != "Jana-Dev" {
+	if st.members["teamadmin"].GitHubLogin != "barath-gh" {
 		t.Error("a failed link changed the stored login")
 	}
-	if out := run(svc, "B", "jana", "github someone"); !strings.Contains(out, "isn't set up for **Seechanlabs**") {
+	if out := run(svc, "B", "sys", "github someone"); !strings.Contains(out, "isn't set up for **Seechanlabs**") {
 		t.Errorf("team without GitHub: %q", out)
 	}
 }
@@ -250,7 +266,7 @@ func TestMemberGitHubCommand(t *testing.T) {
 
 func TestTasksCommand(t *testing.T) {
 	svc, st, ft := newTaskService()
-	if out := run(svc, "A", "jana", "tasks"); !strings.Contains(out, "/att github <username>") {
+	if out := run(svc, "A", "jana", "tasks"); !strings.Contains(out, "/att member @you github") {
 		t.Errorf("unlinked: %q", out)
 	}
 	st.members["jana"].GitHubLogin = "Jana-Dev"

@@ -453,7 +453,7 @@ func helpText(admin bool) string {
 		"| `/att holiday list` | Upcoming holidays |",
 		"| `/att wfh` | Request work from home (opens a form) |",
 		"| `/att wfh list` / `/att wfh cancel <id>` | Your WFH requests / cancel one |",
-		"| `/att github [username]` | Show / link your GitHub login |",
+		"| `/att github` | Show your linked GitHub login (admins link accounts) |",
 		"| `/att tasks` | Your open tasks on this team's GitHub Project |",
 		"| `/att help` | This list |",
 	}

@@ -63,7 +63,7 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att wfh` | Request work from home: opens a form (start date, optional end date, half day, reason). |
 | `/att wfh list` | Your WFH requests in this team and their status. |
 | `/att wfh cancel <id>` | Cancel a pending request, or an approved one that hasn't started. |
-| `/att github [username]` | Show your linked GitHub login, or link it. The user must be a member of this team's GitHub org. |
+| `/att github` | Show your linked GitHub login. Linking is done by an admin (below), so nobody can claim someone else's GitHub account. |
 | `/att tasks` | Your open issues on this team's GitHub Project (not Done): overdue first, then priority, then due date. ⚠️ overdue, 🚧 blocked. |
 | `/att help` | Command list (admin commands shown to admins only). |
 
@@ -75,7 +75,7 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att member @user tracked on\|off` | `off` excludes them from reminders, "not checked in" lists and expected-hours comparisons. |
 | `/att member @user reminders on\|off` | The 10:30 reminder DM. |
 | `/att member @user hours <n>` | Expected hours per day, all organizations combined (default 8; quarter hours). |
-| `/att member @user github <username>\|none` | Link (verified against this team's GitHub org) or unlink a member's GitHub login. Audited. |
+| `/att member @user github <username>\|none` | Link (verified against this team's GitHub org) or unlink a member's GitHub login. Audited. The bot can't prove the account belongs to the person, so copy the username they send you. |
 | `/att holiday add YYYY-MM-DD <name>` | Holiday for this team. |
 | `/att holiday add YYYY-MM-DD all <name>` | Holiday for all organizations (system admins only). |
 | `/att holiday remove <id>` | Remove a holiday (ids from `/att holiday list`). |
@@ -104,7 +104,7 @@ Member settings are global (one person, one set of settings) and every change is
 
 ## GitHub tasks
 
-Each team can be linked to a GitHub organization and an organization **Project (v2)**. Members link their GitHub login once (`/att github <username>`; one login per member, used in all teams) and see their assigned open tasks with `/att tasks`. GitHub problems never affect attendance: on any error the task part is skipped with a short message.
+Each team can be linked to a GitHub organization and an organization **Project (v2)**. An admin links each member's GitHub login once (`/att member @user github <username>`; one login per member, used in all teams; admins may also link themselves with `/att github <username>`) and see their assigned open tasks with `/att tasks`. GitHub problems never affect attendance: on any error the task part is skipped with a short message.
 
 ### One-time GitHub setup
 

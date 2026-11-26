@@ -153,9 +153,15 @@ const githubTimeout = 8 * time.Second
 
 // --- /att github ---
 
-const githubUsage = "Usage:\n" +
-	"- `/att github` — show your linked GitHub login\n" +
-	"- `/att github <username>` — link your GitHub login (must be a member of this team's GitHub org)"
+const githubUsage = "Usage: `/att github` — show your linked GitHub login.\n" +
+	"Admins link accounts: `/att member @user github <username>`."
+
+// askAdminToLink is shown to members: only admins link GitHub logins, so
+// nobody can claim someone else's account.
+const (
+	sendLoginToAdmin = "Send your GitHub username to an admin of this team; they'll run `/att member @you github <username>`."
+	askAdminToLink   = "🔒 Only admins can link GitHub accounts, so nobody can claim someone else's. " + sendLoginToAdmin
+)
 
 func (s *Service) github(ctx context.Context, c Command, args string) (Reply, error) {
 	fields := strings.Fields(args)
@@ -168,10 +174,16 @@ func (s *Service) github(ctx context.Context, c Command, args string) (Reply, er
 			return Reply{}, err
 		}
 		if ms == nil || ms.GitHubLogin == "" {
-			return text("Your GitHub login isn't linked. Run `/att github <username>`."), nil
+			return text("Your GitHub login isn't linked yet. " + sendLoginToAdmin), nil
 		}
-		return text(fmt.Sprintf("Your GitHub login: **[%s](https://github.com/%s)**. Run `/att github <username>` to change it.",
+		return text(fmt.Sprintf("Your GitHub login: **[%s](https://github.com/%s)**. To change it, ask an admin.",
 			ms.GitHubLogin, ms.GitHubLogin)), nil
+	}
+
+	// Self-linking is for admins only (members could otherwise claim any
+	// org member's login); members are pointed to an admin.
+	if !s.isAdmin(ctx, c.TeamID, c.UserID) {
+		return text(askAdminToLink), nil
 	}
 
 	login, msg, err := s.verifyGitHubLogin(ctx, c.TeamID, strings.TrimPrefix(fields[0], "@"))
@@ -234,7 +246,7 @@ func (s *Service) tasks(ctx context.Context, c Command, args string) (Reply, err
 		return Reply{}, err
 	}
 	if ms == nil || ms.GitHubLogin == "" {
-		return text("Link your GitHub login first: `/att github <username>`."), nil
+		return text("Your GitHub login isn't linked yet. " + sendLoginToAdmin), nil
 	}
 	gctx, cancel := context.WithTimeout(ctx, githubTimeout)
 	defer cancel()
