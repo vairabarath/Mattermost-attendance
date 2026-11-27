@@ -5,7 +5,7 @@ import type {TaskItem, TasksState} from 'api';
 import React from 'react';
 
 import {REFRESH_EVENT} from './refresh';
-import Tasks from './Tasks';
+import Tasks, {shortDate} from './Tasks';
 
 jest.mock('api');
 const mocked = api as jest.Mocked<typeof api>;
@@ -24,28 +24,48 @@ const task = (n: number, over: Partial<TaskItem> = {}): TaskItem => ({
 });
 const state = (tasks: TaskItem[], over: Partial<TasksState> = {}): TasksState => ({configured: true, linked: true, tasks, ...over});
 
-test('lists tasks with status, overdue, new and picked marks', async () => {
+const group = (name: RegExp) => screen.getByText(name).parentElement as HTMLElement;
+
+test('shortDate', () => {
+    expect(shortDate('2026-11-25')).toBe('25 Nov');
+    expect(shortDate('nonsense')).toBe('nonsense');
+});
+
+test('groups picked tasks first; rows show status, repo, priority, due and new', async () => {
     mocked.fetchTasks.mockResolvedValue(state([
         task(9, {due: '2026-11-25', overdue: true, priority: 'High'}),
         task(15, {status: 'In progress', picked: true}),
-        task(30, {off_board: true, title: '<b>not html</b>'}),
+        task(30, {off_board: true, title: '<b>not html</b>', due: '2026-12-01'}),
     ]));
     render(<Tasks teamId={TEAM}/>);
 
-    const rows = await screen.findAllByRole('listitem');
-    expect(rows).toHaveLength(3);
-    expect(within(rows[0]).getByRole('link')).toHaveAttribute('href', 'https://github.com/org/app/issues/9');
-    expect(within(rows[0]).getByRole('link')).toHaveAttribute('target', '_blank');
-    expect(rows[0]).toHaveTextContent('⚠️ overdue');
+    await screen.findByText('Picked for today · 1');
+    const today = within(group(/Picked for today/));
+    expect(today.getAllByRole('listitem')).toHaveLength(1);
+    expect(today.getByRole('link', {name: 'Task 15'})).toHaveAttribute('href', 'https://github.com/org/app/issues/15');
+    expect(today.queryByRole('button', {name: /Pick/})).not.toBeInTheDocument();
+    expect(today.getByText('In progress')).toBeInTheDocument();
+
+    const others = within(group(/Other open tasks · 2/));
+    const rows = others.getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('Task 9');
+    expect(rows[0]).toHaveTextContent('app #9');
     expect(rows[0]).toHaveTextContent('High');
-    expect(rows[1]).toHaveTextContent('✓ Today');
-    expect(within(rows[1]).queryByText('Pick')).not.toBeInTheDocument();
-    expect(rows[2]).toHaveTextContent('🆕 added to the board');
-    expect(rows[2]).toHaveTextContent('<b>not html</b>'); // shown as text
-    expect(mocked.fetchTasks).toHaveBeenCalledWith(TEAM);
+    expect(rows[0]).toHaveTextContent('Overdue · 25 Nov');
+    expect(within(rows[0]).getByRole('link')).toHaveAttribute('target', '_blank');
+    expect(rows[1]).toHaveTextContent('New on board');
+    expect(rows[1]).toHaveTextContent('Due 1 Dec');
+    expect(rows[1]).toHaveTextContent('<b>not html</b>'); // shown as text
+    expect(others.getAllByRole('button', {name: /^Pick/})).toHaveLength(2);
 });
 
-test('pick a task', async () => {
+test('nothing picked yet: a short prompt', async () => {
+    mocked.fetchTasks.mockResolvedValue(state([task(1)]));
+    render(<Tasks teamId={TEAM}/>);
+    expect(await screen.findByText(/Nothing picked yet/)).toBeInTheDocument();
+});
+
+test('pick moves the task to today and shows a notice that goes away', async () => {
     mocked.fetchTasks.mockResolvedValue(state([task(15)]));
     mocked.pickTask.mockResolvedValue({message: '▶️ **#15 Task 15** is now **In progress**.', tasks: state([task(15, {status: 'In progress', picked: true})])});
     render(<Tasks teamId={TEAM}/>);
@@ -53,16 +73,20 @@ test('pick a task', async () => {
     await userEvent.click(await screen.findByLabelText('Pick #15 Task 15 for today'));
     expect(mocked.pickTask).toHaveBeenCalledWith(TEAM, 'https://github.com/org/app/issues/15');
     expect(await screen.findByRole('status')).toHaveTextContent('#15 Task 15 is now In progress');
-    expect(screen.getByText('✓ Today')).toBeInTheDocument();
-    expect(screen.getByText('In progress')).toBeInTheDocument();
-});
+    expect(screen.getByText('Picked for today · 1')).toBeInTheDocument();
+    expect(screen.queryByText(/Other open tasks/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument(), {timeout: 7000});
+}, 10000);
 
-test('show all', async () => {
+test('show more', async () => {
     mocked.fetchTasks.mockResolvedValue(state([1, 2, 3, 4, 5, 6, 7, 8].map((n) => task(n))));
     render(<Tasks teamId={TEAM}/>);
-    expect(await screen.findAllByRole('listitem')).toHaveLength(6);
-    await userEvent.click(screen.getByText('Show all 8'));
+    await screen.findByText('Other open tasks · 8');
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+    await userEvent.click(screen.getByText('Show 3 more'));
     expect(screen.getAllByRole('listitem')).toHaveLength(8);
+    await userEvent.click(screen.getByText('Show less'));
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
 });
 
 test('not linked, GitHub down (retry), nothing to do, not set up', async () => {
@@ -95,5 +119,5 @@ test('pick errors are shown; live refresh reloads', async () => {
     reactAct(() => {
         window.dispatchEvent(new Event(REFRESH_EVENT));
     });
-    expect(await screen.findByText('✓ Today')).toBeInTheDocument();
+    expect(await screen.findByText('Picked for today · 1')).toBeInTheDocument();
 });

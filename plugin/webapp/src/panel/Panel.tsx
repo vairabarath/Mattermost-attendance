@@ -236,6 +236,21 @@ export default function Panel() {
                         </div>
                     </>
                 )}
+                <div
+                    className='att-card-foot'
+                    aria-label='Today'
+                >
+                    <span>
+                        <span className='att-muted'>{'Today '}</span>
+                        <strong>{hm(todaySeconds)}</strong>
+                    </span>
+                    {allSeconds !== todaySeconds && (
+                        <span>
+                            <span className='att-muted'>{'All orgs '}</span>
+                            <strong>{hm(allSeconds)}</strong>
+                        </span>
+                    )}
+                </div>
             </section>
 
             {error && (
@@ -258,28 +273,7 @@ export default function Panel() {
                 </div>
             )}
 
-            <section
-                className='att-today'
-                aria-label='Today'
-            >
-                <div>
-                    <span className='att-muted'>{'Today here '}</span>
-                    <strong>{hm(todaySeconds)}</strong>
-                </div>
-                {allSeconds !== todaySeconds && (
-                    <div>
-                        <span className='att-muted'>{'All orgs '}</span>
-                        <strong>{hm(allSeconds)}</strong>
-                    </div>
-                )}
-            </section>
-
             <Tasks teamId={me.team.id}/>
-
-            <p className='att-hint'>
-                {'The end-of-day report is coming to this panel. Until then: '}
-                <code>{'/att eod'}</code>
-            </p>
         </div>
     );
 }

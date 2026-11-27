@@ -74,7 +74,7 @@ test('working: live timer, break, and check out needs a confirmation', async () 
         jest.advanceTimersByTime(3000);
     });
     expect(screen.getByLabelText('Time worked this session')).toHaveTextContent('1:02:08');
-    expect(screen.getByLabelText('Today')).toHaveTextContent('Today here 1h 2m');
+    expect(screen.getByLabelText('Today')).toHaveTextContent('Today 1h 2m');
     jest.useRealTimers();
 
     mocked.act.mockResolvedValue({message: '☕ On break', me: me({session: working({on_break: true, break_since: new Date().toISOString()})})});

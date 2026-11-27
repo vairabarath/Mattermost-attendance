@@ -1,35 +1,39 @@
-// "Your tasks" in the panel: the member's open tasks on the team's GitHub
-// Project (same list as /att tasks), with a Pick button per task.
+// "Tasks" in the panel: the member's open tasks on the team's GitHub
+// Project (same list as /att tasks), grouped into "Picked for today" and
+// "Other open tasks", with a Pick button on the others.
 
 import {fetchTasks, pickTask} from 'api';
 import type {TaskItem, TasksState} from 'api';
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 
 import Markdown from './Markdown';
 import {REFRESH_EVENT} from './refresh';
 
-const SHOWN = 6;
+const SHOWN = 5;
+const NOTICE_MS = 6000;
 
-const STATUS_CLASS: Record<string, string> = {
+const STATUS_KEY: Record<string, string> = {
+    Todo: 'todo',
     'In progress': 'progress',
     'In review': 'review',
     Blocked: 'blocked',
-    Todo: 'todo',
 };
 
-function dueLabel(due: string): string {
-    const d = new Date(`${due}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? due : d.toLocaleDateString([], {weekday: 'short', day: 'numeric', month: 'short'});
+// shortDate: "2026-11-25" → "25 Nov" (like the bot's messages).
+export function shortDate(day: string): string {
+    const d = new Date(`${day}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? day : d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short'});
 }
 
-function TaskRow({task, busy, onPick}: {task: TaskItem; busy: boolean; onPick: (t: TaskItem) => void}) {
+function TaskRow({task, busy, onPick}: {task: TaskItem; busy: boolean; onPick?: (t: TaskItem) => void}) {
+    const key = STATUS_KEY[task.status] ?? 'none';
     const repo = task.repo.split('/').pop();
     return (
-        <li className='att-task'>
+        <li className={`att-task${task.overdue ? ' att-task--overdue' : ''}`}>
             <span
-                className={`att-chip att-chip--${STATUS_CLASS[task.status] ?? 'none'}`}
-                title='Status on the Project board'
-            >{task.status || 'No status'}</span>
+                className={`att-task-dot att-task-dot--${key}`}
+                aria-hidden='true'
+            />
             <div className='att-task-main'>
                 {/* Mattermost's ExternalLink component isn't available to plugins; rel=noopener noreferrer keeps the new tab safe. */}
                 {/* eslint-disable-next-line @mattermost/use-external-link */}
@@ -38,30 +42,23 @@ function TaskRow({task, busy, onPick}: {task: TaskItem; busy: boolean; onPick: (
                     href={task.url}
                     target='_blank'
                     rel='noopener noreferrer'
-                >
-                    <span className='att-muted'>{`${repo}#${task.number} `}</span>
-                    {task.title}
-                </a>
+                    title={`${task.title} — open on GitHub`}
+                >{task.title}</a>
                 <div className='att-task-meta'>
+                    <span className={`att-pill att-pill--${key}`}>{task.status || 'No status'}</span>
+                    <span>{`${repo} #${task.number}`}</span>
                     {task.priority && <span>{task.priority}</span>}
-                    {task.due && (
-                        <span className={task.overdue ? 'att-overdue' : ''}>
-                            {`${task.overdue ? '⚠️ overdue · ' : 'due '}${dueLabel(task.due)}`}
-                        </span>
-                    )}
-                    {task.off_board && <span className='att-new'>{'🆕 added to the board'}</span>}
+                    {task.due && task.overdue && <span className='att-pill att-pill--overdue'>{`Overdue · ${shortDate(task.due)}`}</span>}
+                    {task.due && !task.overdue && <span>{`Due ${shortDate(task.due)}`}</span>}
+                    {task.off_board && <span className='att-pill att-pill--new'>{'New on board'}</span>}
                 </div>
             </div>
-            {task.picked ? (
-                <span
-                    className='att-picked'
-                    title='Picked for today: it will be in your end-of-day report'
-                >{'✓ Today'}</span>
-            ) : (
+            {onPick && (
                 <button
                     className='att-btn att-btn--small'
                     disabled={busy}
                     onClick={() => onPick(task)}
+                    title='Work on this today: moves it to In progress and adds it to your end-of-day report'
                     aria-label={`Pick #${task.number} ${task.title} for today`}
                 >{'Pick'}</button>
             )}
@@ -73,8 +70,9 @@ export default function Tasks({teamId}: {teamId: string}) {
     const [data, setData] = useState<TasksState | null>(null);
     const [failed, setFailed] = useState('');
     const [busy, setBusy] = useState('');
-    const [message, setMessage] = useState('');
+    const [notice, setNotice] = useState('');
     const [showAll, setShowAll] = useState(false);
+    const noticeTimer = useRef<number>();
 
     const load = useCallback(async () => {
         try {
@@ -87,7 +85,7 @@ export default function Tasks({teamId}: {teamId: string}) {
 
     useEffect(() => {
         setData(null);
-        setMessage('');
+        setNotice('');
         setShowAll(false);
         load();
     }, [load]);
@@ -95,18 +93,27 @@ export default function Tasks({teamId}: {teamId: string}) {
     useEffect(() => {
         const refresh = () => load();
         window.addEventListener(REFRESH_EVENT, refresh);
-        return () => window.removeEventListener(REFRESH_EVENT, refresh);
+        return () => {
+            window.removeEventListener(REFRESH_EVENT, refresh);
+            window.clearTimeout(noticeTimer.current);
+        };
     }, [load]);
+
+    const showNotice = (text: string) => {
+        setNotice(text);
+        window.clearTimeout(noticeTimer.current);
+        noticeTimer.current = window.setTimeout(() => setNotice(''), NOTICE_MS);
+    };
 
     const pick = async (t: TaskItem) => {
         setBusy(t.url);
         try {
             const r = await pickTask(teamId, t.url);
             setData(r.tasks);
-            setMessage(r.message);
             setFailed('');
+            showNotice(r.message);
         } catch (e) {
-            setMessage('');
+            setNotice('');
             setFailed((e as Error).message);
         } finally {
             setBusy('');
@@ -117,14 +124,19 @@ export default function Tasks({teamId}: {teamId: string}) {
         return null; // GitHub isn't used in this team
     }
 
+    const tasks = data?.tasks ?? [];
+    const picked = tasks.filter((t) => t.picked);
+    const others = tasks.filter((t) => !t.picked);
+    const othersShown = showAll ? others : others.slice(0, SHOWN);
+
     let body: React.ReactNode;
     if (!data && !failed) {
-        body = <div className='att-muted'>{'Loading your tasks…'}</div>;
+        body = <div className='att-empty'>{'Loading your tasks…'}</div>;
     } else if (data && !data.linked) {
-        body = <div className='att-muted'>{'Your GitHub account isn’t linked yet. Send your GitHub username to an admin of this team.'}</div>;
+        body = <div className='att-empty'>{'Your GitHub account isn’t linked yet. Send your GitHub username to an admin of this team.'}</div>;
     } else if (failed || data?.error) {
         body = (
-            <div className='att-note'>
+            <div className='att-empty'>
                 {failed || data?.error}
                 {' '}
                 <button
@@ -133,27 +145,47 @@ export default function Tasks({teamId}: {teamId: string}) {
                 >{'Try again'}</button>
             </div>
         );
-    } else if (data && data.tasks.length === 0) {
-        body = <div className='att-muted'>{'No open tasks assigned to you. 🎉'}</div>;
-    } else if (data) {
-        const shown = showAll ? data.tasks : data.tasks.slice(0, SHOWN);
+    } else if (tasks.length === 0) {
+        body = <div className='att-empty'>{'No open tasks assigned to you. 🎉'}</div>;
+    } else {
         body = (
             <>
-                <ul className='att-tasks'>
-                    {shown.map((t) => (
-                        <TaskRow
-                            key={t.url}
-                            task={t}
-                            busy={Boolean(busy)}
-                            onPick={pick}
-                        />
-                    ))}
-                </ul>
-                {data.tasks.length > SHOWN && (
-                    <button
-                        className='att-link'
-                        onClick={() => setShowAll(!showAll)}
-                    >{showAll ? 'Show less' : `Show all ${data.tasks.length}`}</button>
+                <div className='att-group'>
+                    <div className='att-group-h'>{`Picked for today · ${picked.length}`}</div>
+                    {picked.length === 0 ? (
+                        <div className='att-empty att-empty--small'>{'Nothing picked yet. Pick what you’re working on below.'}</div>
+                    ) : (
+                        <ul className='att-tasks'>
+                            {picked.map((t) => (
+                                <TaskRow
+                                    key={t.url}
+                                    task={t}
+                                    busy={false}
+                                />
+                            ))}
+                        </ul>
+                    )}
+                </div>
+                {others.length > 0 && (
+                    <div className='att-group'>
+                        <div className='att-group-h'>{`Other open tasks · ${others.length}`}</div>
+                        <ul className='att-tasks'>
+                            {othersShown.map((t) => (
+                                <TaskRow
+                                    key={t.url}
+                                    task={t}
+                                    busy={Boolean(busy)}
+                                    onPick={pick}
+                                />
+                            ))}
+                        </ul>
+                        {others.length > SHOWN && (
+                            <button
+                                className='att-link att-more'
+                                onClick={() => setShowAll(!showAll)}
+                            >{showAll ? 'Show less' : `Show ${others.length - SHOWN} more`}</button>
+                        )}
+                    </div>
                 )}
             </>
         );
@@ -161,30 +193,19 @@ export default function Tasks({teamId}: {teamId: string}) {
 
     return (
         <section
-            className='att-section'
+            className='att-card att-card--plain'
             aria-label='Your tasks'
         >
-            <h3 className='att-h'>
-                {'Your tasks'}
-                {data?.tasks.length ? <span className='att-count'>{data.tasks.length}</span> : null}
-            </h3>
-            {message && (
+            <h3 className='att-h'>{'Tasks'}</h3>
+            {notice && (
                 <div
-                    className='att-message'
+                    className='att-notice'
                     role='status'
                 >
-                    <button
-                        className='att-close'
-                        aria-label='Dismiss'
-                        onClick={() => setMessage('')}
-                    >{'×'}</button>
-                    <Markdown text={message}/>
+                    <Markdown text={notice}/>
                 </div>
             )}
             {body}
-            {data?.linked && data.tasks.length > 0 && (
-                <p className='att-hint'>{'Pick what you’re working on today: it moves to In progress and gets its own row in your end-of-day report.'}</p>
-            )}
         </section>
     );
 }
