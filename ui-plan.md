@@ -2,7 +2,7 @@
 
 A side panel inside Mattermost for attendance, tasks and end-of-day reports, so people click instead of typing `/att` commands. Built as a **Mattermost plugin** that talks to the existing bot. Slash commands stay (mobile app, power users).
 
-_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 4 done — next: Phase 5 (live updates everywhere)**_
+_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 5 done — next: Phase 6 (hours and WFH in the panel)**_
 
 ---
 
@@ -17,7 +17,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **2** | Member panel: status, live timer, check in / break / check out | ✅ live-tested | 27 Nov · plugin 0.3.1 |
 | **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ✅ live-tested | 27 Nov · bot `c63a3e4`, plugin 0.4.0 |
 | **4** | End-of-day report form in the panel | ✅ live-tested | 27 Nov · bot `1ea84b1`, plugin 0.5.1 |
-| **5** | Live updates (panel refreshes itself) | 🟦 built and tested — waiting for your OK to deploy | — |
+| **5** | Live updates (panel refreshes itself) | ✅ live-tested | 27 Nov · bot `be0a410`, plugin 0.6.1 |
 | **6** | Hours and WFH in the panel | ⬜ | — |
 | **7** | Admin tab: team today, reports, task check | ⬜ | — |
 | **8** | Weekly charts and polish (empty states, loading, errors, a11y) | ⬜ | — |
@@ -255,15 +255,17 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Live test (barath, Bittrix, today's report): card "Sent 8:06 AM · GitHub ✅ synced · Edit report" ✅ · form pre-filled (text, tasks #8 and #7 with "now:", already done #4 #5 #6) ✅ · #8 → Done + extra text → Update report ✅ · card "⏳ syncing…" → "✅ synced" by itself ~5 s later ✅ · GitHub #8 closed, board Done, EOD comment with the new text ✅ · thread reply edited in place (Done #4 #5 #6 #8) ✅ · no errors in the log ✅. Check-out → form not live-tested (you were checked in); covered by tests.
 - [x] Fixed after the live test: the first status button showed the internal value `no_change` instead of "No change" (0.5.1; the tests now use the real value)
 
-### Phase 5 — Live updates 🟦
+### Phase 5 — Live updates ✅
 - [x] Already live from earlier phases: panel actions, `/att in/out/break/back`, chat buttons, auto-close, picks (panel + chat menu), EOD submit (panel + dialog), GitHub sync
 - [x] New events: board sweep → `tasks_changed` to each linked assignee of an added issue (also when the run fails after adding); WFH submitted / approved / rejected / cancelled → `wfh_changed`; same-day WFH approval switching an open session to 🏠 → `session_changed`; an admin's `/att fix` → `session_changed` for the member
 - [x] Targeted refresh: each event reloads only what it affects (status: session, wfh · tasks: tasks · end-of-day card: eod, session); reconnect, window shown again and the 5-min poll reload everything; bursts within 250 ms → one reload. A Break click no longer triggers two GitHub calls.
 - [x] Events reach every window/device the user has open (Mattermost sends them per user); an open EOD form is never reloaded under you
 - [x] Tests: bot (sweep notifies assignees, WFH approval events, `/att fix` event); panel (targeted refresh + debounce, disabled while the form is open, check-out elsewhere updates the status) — 23 panel tests
 - [x] Plugin 0.6.0
-- [ ] Deploy (bot + plugin)
-- [ ] Live test with two windows
+- [x] Deploy: bot `ef3a7eb` → `be0a410`, plugin 0.6.0 → 0.6.1; uploads back to `false`
+- [x] Live test with two Mattermost windows (barath): Break in A → B "On break" in 0.6 s ✅ · Back in B → A "Working" in 0.7 s ✅ · Break/Back now only call `/me` (4–5 ms), no GitHub-backed reloads ✅ · new issue assigned in `operations` (put on the board by GitHub's Auto-add) → appeared in both windows after 66 s, no reload ✅ · Pick in A → both windows reloaded tasks within 3 s; B shows it under "Picked for today" ✅
+- [x] Fixed during the live test: (1) a break still reloaded the end-of-day card (GitHub-backed) → the card now reloads only on check-in/out (0.6.1); (2) issues put on the board by GitHub's own Auto-add, or newly assigned, sent no event → incremental sweeps now notify assignees of every issue created/changed since the last run (`be0a410`)
+- Known: closing an issue on GitHub sends no event (the sweep only looks at open issues); the panel drops it at the next reload / 5-min poll
 
 ### Phase 6 — Hours and WFH ⬜
 - [ ] Bot: `GET /hours`, WFH endpoints
@@ -311,6 +313,7 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 
 ## Changelog
 
+- **27 Nov 2026** — Phase 5 deployed and live-tested: live updates across windows, targeted refresh, sweep notifications. Plugin 0.6.1.
 - **27 Nov 2026** — Phase 4 deployed and live-tested: the end-of-day report in the panel (card + form, same code as the dialog). Plugin 0.5.1.
 - **27 Nov 2026** — Phase 3 deployed and live-tested: "Your tasks" in the panel with Pick. Plugin 0.4.0.
 - **27 Nov 2026** — Phase 2 deployed and live-tested: the Attendance panel (app-bar icon, live timer, check in / break / back / check out, live refresh). Plugin 0.3.1.
