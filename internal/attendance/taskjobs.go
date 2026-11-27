@@ -132,8 +132,8 @@ func (j *Jobs) EODReminders(ctx context.Context, now time.Time) {
 // --- 10:00 task check ---
 
 // TaskAlerts posts, per team with a GitHub Project, overdue and stale
-// issues of linked members (and, on Mondays, linked members with no open
-// task) to #attendance-admin. Nothing is posted when all is well.
+// issues of linked members, and linked members with no open task, to
+// #attendance-admin. Nothing is posted when all is well.
 func (j *Jobs) TaskAlerts(ctx context.Context, now time.Time) {
 	if j.GitHub == nil {
 		return
@@ -173,7 +173,7 @@ func (j *Jobs) TaskAlerts(ctx context.Context, now time.Time) {
 			cutoff := staleCutoff(now.In(j.Loc), t.ID, j.Workdays, holidays)
 			in := TaskAlertInput{
 				TeamName: t.Name, Now: now, Loc: j.Loc, Tasks: tasks, Linked: linked,
-				StaleSince: cutoff, NoTasks: now.In(j.Loc).Weekday() == time.Monday,
+				StaleSince: cutoff, NoTasks: true,
 				BranchActive: func(task Task) bool {
 					active, err := j.GitHub.BranchActive(ctx, t.ID, task.Repo, task.Number, cutoff)
 					if err != nil { // unknown: don't call it stale
@@ -254,7 +254,7 @@ type TaskAlertInput struct {
 	Tasks        []Task            // open, not Done, on the Project
 	Linked       map[string]string // lower(login) → username
 	StaleSince   time.Time
-	NoTasks      bool // include members with no open task (Mondays)
+	NoTasks      bool // include members with no open task
 	BranchActive func(Task) bool
 }
 

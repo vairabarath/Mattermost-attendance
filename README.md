@@ -204,7 +204,7 @@ Times are in `TIMEZONE`. Daily jobs skip non-workdays (`WORKDAYS`) and holidays 
 
 - ⚠️ **Overdue:** open, not Done, due date before today — grouped by member.
 - 🐢 **Stale:** *In progress* with no issue update (comments, edits, labels) since the start of the day 3 working days ago **and** no commit since then on a branch of its repo named `<number>-…` (first 100 branches). If the branch check fails, the issue isn't called stale.
-- 😴 **No open tasks** (Mondays only): linked members with no open task on the Project.
+- 😴 **No open tasks:** linked members with no open task on the Project.
 
 Each team's check runs once a day (`job_runs`); if GitHub fails it retries twice (after 30 s and 2 min), then skips that day.
 

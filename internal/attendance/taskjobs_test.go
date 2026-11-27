@@ -123,7 +123,11 @@ func TestTaskAlerts(t *testing.T) {
 			t.Errorf("missing %q in\n%s", want, got)
 		}
 	}
-	for _, not := range []string{"#12", "#13", "#14", "#15", "No open tasks", "nogit"} {
+	// ravi (linked, no tasks) is listed every day; nogit (unlinked) never.
+	if !strings.Contains(got, "**😴 No open tasks:** @ravi") {
+		t.Errorf("no-tasks section missing:\n%s", got)
+	}
+	for _, not := range []string{"#12", "#13", "#14", "#15", "nogit", "@jana,"} {
 		if strings.Contains(got, not) {
 			t.Errorf("unexpected %q in\n%s", not, got)
 		}
@@ -132,7 +136,7 @@ func TestTaskAlerts(t *testing.T) {
 		t.Errorf("branch check since %v", gh.since)
 	}
 
-	// Monday: linked members without tasks are listed too (not unlinked ones).
+	// Every linked member without tasks is listed (any weekday).
 	st2 := newFakeJobStore()
 	st2.members = st.members
 	j2, msg2 := newJobs(st2, roster)
@@ -142,9 +146,9 @@ func TestTaskAlerts(t *testing.T) {
 		t.Errorf("monday: %v", msg2.posts)
 	}
 
-	// All fine on a weekday: nothing posted. GitHub down: retried, nothing posted.
+	// All fine: nothing posted. GitHub down: retried, nothing posted.
 	st3 := newFakeJobStore()
-	st3.members = st.members
+	st3.members = map[string]MemberSettings{"u2": st.members["u2"]}
 	j3, msg3 := newJobs(st3, roster)
 	j3.GitHub = &fakeTeamTasks{tasks: []Task{ghTask(13, StatusInProgress, "", recent, "vairabarath")}}
 	j3.TaskAlerts(context.Background(), wed)
