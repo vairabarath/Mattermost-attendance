@@ -61,13 +61,21 @@ func (j *Jobs) SweepBoards(ctx context.Context, full bool) {
 			since = last.Add(-sweepOverlap)
 		}
 		sctx, cancel := context.WithTimeout(ctx, sweepTimeout)
-		added, err := j.Board.SweepBoard(sctx, t.ID, since, linked)
+		seen, err := j.Board.SweepBoard(sctx, t.ID, since, linked)
 		cancel()
-		// Issues added before an error are on the board: refresh their
-		// assignees' panels either way.
+		// Refresh the assignees' panels: for issues the sweep added (also
+		// before an error), and on incremental runs for any issue created or
+		// changed since the last run (e.g. put on the board by GitHub's own
+		// Auto-add, or newly assigned). Full runs don't notify everyone.
 		notified := map[string]bool{}
-		for _, who := range added {
-			for _, l := range who {
+		added := 0
+		for _, is := range seen {
+			if is.Added {
+				added++
+			} else if since.IsZero() {
+				continue
+			}
+			for _, l := range is.Assignees {
 				if uid := userByLogin[l]; uid != "" && !notified[uid] && j.Notify != nil {
 					notified[uid] = true
 					j.Notify(uid, EventTasks, t.ID)
@@ -79,8 +87,8 @@ func (j *Jobs) SweepBoards(ctx context.Context, full bool) {
 			continue
 		}
 		j.lastSweep[t.ID] = start
-		if len(added) > 0 || since.IsZero() {
-			j.Log.Info("board sweep done", "team", t.Name, "full", since.IsZero(), "added", len(added))
+		if added > 0 || since.IsZero() {
+			j.Log.Info("board sweep done", "team", t.Name, "full", since.IsZero(), "added", added)
 		}
 	}
 }

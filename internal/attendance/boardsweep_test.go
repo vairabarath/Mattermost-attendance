@@ -11,11 +11,11 @@ import (
 type fakeSweeper struct {
 	calls []string // team@since(full|HH:MM)
 	fail  map[string]error
-	added [][]string
+	added []SweptIssue
 }
 
 func (f *fakeSweeper) Configured(team string) bool { return team == "A" || team == "B" }
-func (f *fakeSweeper) SweepBoard(_ context.Context, team string, since time.Time, linked map[string]bool) ([][]string, error) {
+func (f *fakeSweeper) SweepBoard(_ context.Context, team string, since time.Time, linked map[string]bool) ([]SweptIssue, error) {
 	s := "full"
 	if !since.IsZero() {
 		s = since.In(ist).Format("15:04")
@@ -117,21 +117,32 @@ func TestOffBoardTasksListedAndAdded(t *testing.T) {
 	}
 }
 
-// The assignee of an issue the sweep added gets a live refresh, once per
-// team, even if the run failed after adding it.
+// Assignees' panels refresh: for added issues (also when the run failed
+// after adding), and on incremental runs for issues seen as changed. Full
+// runs only notify for what they added.
 func TestSweepNotifiesAssignees(t *testing.T) {
 	st := newFakeJobStore()
 	st.members["u1"] = MemberSettings{UserID: "u1", GitHubLogin: "Jana-Dev"}
 	st.members["u2"] = MemberSettings{UserID: "u2", GitHubLogin: "vairabarath"}
+	st.members["u3"] = MemberSettings{UserID: "u3", GitHubLogin: "ravi-gh"}
 	j, _ := newJobs(st, nil)
 	var got notes
 	j.Notify = got.record
-	sw := &fakeSweeper{added: [][]string{{"jana-dev"}, {"jana-dev", "vairabarath"}}, fail: map[string]error{"B": errors.New("502")}}
+	sw := &fakeSweeper{fail: map[string]error{"B": errors.New("502")}, added: []SweptIssue{
+		{Assignees: []string{"jana-dev"}, Added: true},
+		{Assignees: []string{"jana-dev", "vairabarath"}, Added: true},
+		{Assignees: []string{"ravi-gh"}}, // on the board already (e.g. GitHub's Auto-add), just changed
+	}}
 	j.Board = sw
 	j.Now = func() time.Time { return istAt(2026, 11, 27, 10, 0) }
-	j.SweepBoards(context.Background(), false)
-	want := "u1:tasks_changed:A,u2:tasks_changed:A,u1:tasks_changed:B,u2:tasks_changed:B"
-	if strings.Join(got, ",") != want {
-		t.Errorf("notified %v", got)
+
+	j.SweepBoards(context.Background(), true) // full run: only what it added
+	if strings.Join(got, ",") != "u1:tasks_changed:A,u2:tasks_changed:A,u1:tasks_changed:B,u2:tasks_changed:B" {
+		t.Errorf("full run notified %v", got)
+	}
+	got = nil
+	j.SweepBoards(context.Background(), false) // incremental (A has a watermark now)
+	if strings.Join(got, ",") != "u1:tasks_changed:A,u2:tasks_changed:A,u3:tasks_changed:A,u1:tasks_changed:B,u2:tasks_changed:B" {
+		t.Errorf("incremental run notified %v", got)
 	}
 }

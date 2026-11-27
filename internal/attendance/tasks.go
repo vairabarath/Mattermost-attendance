@@ -76,9 +76,16 @@ type BoardSweeper interface {
 	Configured(teamID string) bool
 	// SweepBoard adds open issues in teamID's org assigned to a linked
 	// login (lowercase) and not on the Project; zero since = all open
-	// issues, else only those updated since. It returns, per added issue,
-	// its linked assignees (lowercase logins).
-	SweepBoard(ctx context.Context, teamID string, since time.Time, linked map[string]bool) ([][]string, error)
+	// issues, else only those updated since. It returns the open issues it
+	// looked at that have a linked assignee, marking those it added.
+	SweepBoard(ctx context.Context, teamID string, since time.Time, linked map[string]bool) ([]SweptIssue, error)
+}
+
+// SweptIssue is an issue the board sweep saw: its linked assignees
+// (lowercase logins), and whether the sweep added it to the board.
+type SweptIssue struct {
+	Assignees []string
+	Added     bool
 }
 
 // boardTimeout bounds adding issues to the board after a command.

@@ -143,7 +143,9 @@ type sweepPage struct {
 // in teamID's org that's assigned to a linked login (lowercase keys) and
 // not on the Project. A zero since looks at all open issues; otherwise
 // only issues updated since then (creating or assigning an issue updates it).
-func (t *Tasks) SweepBoard(ctx context.Context, teamID string, since time.Time, linked map[string]bool) ([][]string, error) {
+// It returns every issue it saw with a linked assignee, so their panels can
+// refresh — also for issues GitHub's own Auto-add already put on the board.
+func (t *Tasks) SweepBoard(ctx context.Context, teamID string, since time.Time, linked map[string]bool) ([]attendance.SweptIssue, error) {
 	tp, ok := t.teams[teamID]
 	if !ok || !t.adoptable(teamID) || len(linked) == 0 {
 		return nil, nil
@@ -156,12 +158,12 @@ func (t *Tasks) SweepBoard(ctx context.Context, teamID string, since time.Time, 
 	if !since.IsZero() {
 		q += " updated:>=" + since.UTC().Format("2006-01-02T15:04:05+00:00")
 	}
-	var added [][]string
+	var seen []attendance.SweptIssue
 	vars := map[string]any{"q": q, "after": nil}
 	for page := 0; page < maxSweepPages; page++ {
 		var p sweepPage
 		if err := t.app.GraphQL(ctx, tp.Org, sweepQuery, vars, &p, false); err != nil {
-			return added, err
+			return seen, err
 		}
 		for _, n := range p.Search.Nodes {
 			if n.Number == 0 || n.ID == "" || n.State != "OPEN" {
@@ -179,20 +181,24 @@ func (t *Tasks) SweepBoard(ctx context.Context, teamID string, since time.Time, 
 					who = append(who, l)
 				}
 			}
-			if onBoard || len(who) == 0 {
+			if len(who) == 0 {
+				continue
+			}
+			if onBoard {
+				seen = append(seen, attendance.SweptIssue{Assignees: who})
 				continue
 			}
 			if _, err := t.addToBoard(ctx, teamID, schema, n.ID); err != nil {
-				return added, err
+				return seen, err
 			}
-			added = append(added, who)
+			seen = append(seen, attendance.SweptIssue{Assignees: who, Added: true})
 			t.log.Info("issue added to board", "team_id", teamID, "issue", n.URL, "by", "sweep")
 		}
 		if !p.Search.PageInfo.HasNextPage {
-			return added, nil
+			return seen, nil
 		}
 		vars["after"] = p.Search.PageInfo.EndCursor
 	}
 	t.log.Warn("github: board sweep truncated", "team_id", teamID, "pages", maxSweepPages)
-	return added, nil
+	return seen, nil
 }
