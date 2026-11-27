@@ -38,6 +38,7 @@ type JobStore interface {
 	HolidaysBetween(ctx context.Context, fromDay, toDay string) ([]Holiday, error)
 	PendingWFH(ctx context.Context, teamID, coveringDay string) ([]WFHRequest, error)
 	InsertAudit(ctx context.Context, e AuditEntry) error
+	EODAdminStore
 }
 
 // Messenger posts to channels and DMs members as the bot.
@@ -79,6 +80,8 @@ type Jobs struct {
 
 	// EODRetry retries GitHub syncs of end-of-day reports (every 15 min).
 	EODRetry func(ctx context.Context)
+	GitHub   TeamTaskSource // nil: no task alerts or task columns
+	Links    Linker         // nil: no EOD thread link in the daily summary
 }
 
 // dailyJob is a job that runs once per day at a fixed local time.
@@ -91,9 +94,11 @@ type dailyJob struct {
 
 func (j *Jobs) daily() []dailyJob {
 	return []dailyJob{
+		{"task_alerts", 10, 0, nil, j.TaskAlerts},
 		{"reminder", 10, 30, nil, j.Reminders},
 		{"wfh_pending", 18, 0, nil, j.PendingWFHReminder},
 		{"still_checked_in", 19, 0, nil, j.StillCheckedIn},
+		{"eod_reminder", 19, 30, nil, j.EODReminders},
 		{"daily_summary", 20, 0, nil, j.DailySummaries},
 		{"weekly_report", 9, 0, &monday, j.WeeklyReports},
 	}
@@ -353,7 +358,9 @@ func (j *Jobs) DailySummaries(ctx context.Context, now time.Time) {
 	for _, t := range due {
 		t := t
 		j.once(ctx, "daily_summary", day+"/"+t.Key, func(ctx context.Context) error {
+			eod, link := j.dailyEOD(ctx, t.ID, day)
 			msg := BuildDailySummary(SummaryInput{
+				EOD: eod, EODThread: link,
 				TeamID: t.ID, TeamName: t.Name, Teams: j.TeamNames,
 				Day: now, Now: now, Loc: j.Loc,
 				Roster: rosters[t.ID], Usernames: usernames, Sessions: sessions,
@@ -449,7 +456,8 @@ func (j *Jobs) WeeklyReports(ctx context.Context, now time.Time) {
 			}
 			title := fmt.Sprintf("#### 📊 Weekly report — %s — %s – %s", t.Name,
 				p.FirstDay.Format("Mon 2 Jan"), p.LastDay.Format("Mon 2 Jan"))
-			return j.Msg.CreatePost(ctx, t.AdminChannelID, RenderTeamReport(title, BuildTeamReport(in)))
+			rows := BuildTeamReport(in)
+			return j.Msg.CreatePost(ctx, t.AdminChannelID, RenderTeamReport(title, rows)+j.weeklyTasks(ctx, t.ID, p, rows))
 		})
 	}
 }

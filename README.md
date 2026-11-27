@@ -87,6 +87,9 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att wfh pending` | Pending WFH requests for this team. |
 | `/att wfh all` | Every WFH request in this team from the last 30 days and upcoming (any status), with who is WFH today. |
 | `/att export [YYYY-MM]` | CSV of this team's sessions for the month (default: this month), sent to you as a DM from the bot. |
+| `/att tasks @user` | That member's open tasks on this team's GitHub Project (same list they see). |
+| `/att eod @user [YYYY-MM-DD]` | That member's end-of-day report in this team (default today), with a link to it in the thread — or whether they worked without sending one. |
+| `/att eod team [YYYY-MM-DD]` | Everyone who worked in this team that day (or sent a report): hours, EOD ✅/❌ (⏳ = still checked in), Done and Blocked counts, GitHub sync, and a link to the day's thread. |
 
 ### WFH flow
 
@@ -188,12 +191,22 @@ Times are in `TIMEZONE`. Daily jobs skip non-workdays (`WORKDAYS`) and holidays 
 
 | When | Job |
 |---|---|
+| 10:00 | **Task check** per team with a GitHub Project, in `#attendance-admin` (see below). Nothing is posted when there's nothing to report. |
 | 10:30 | DM tracked members (reminders on) who haven't checked in to **any** team today. One DM per person. |
 | 19:00 | DM everyone still checked in. |
-| 20:00 | Daily summary in each team's `#attendance`: who worked (hours, 🏢/🏠), who is still checked in, who worked for another org instead, who didn't check in. |
+| 19:30 | DM tracked members who checked out of a team today without sending that team's end-of-day report (one DM listing the teams). People still checked in aren't reminded: the form opens when they check out. |
+| 20:00 | Daily summary in each team's `#attendance`: who worked (hours, 🏢/🏠, **EOD ✅/❌/⏳, tasks Done, Blocked**), a link to the day's EOD thread, who is still checked in, who worked for another org instead, who didn't check in. |
 | 18:00 | Pending WFH requests covering tomorrow, per team, in `#attendance-admin` (only if there are any). |
-| Mon 09:00 | Weekly report for the previous Mon–Sun in each team's `#attendance-admin` (same table as `/att report team`). Runs even if Monday is a holiday. |
+| Mon 09:00 | Weekly report for the previous Mon–Sun in each team's `#attendance-admin` (same table as `/att report team`), plus a **Tasks and end-of-day reports** table: EOD reports sent ÷ days worked, issues completed (assigned to them, closed that week, in the team's org) and overdue now. Issue columns only for members with a linked GitHub login. Runs even if Monday is a holiday. |
 | Hourly (:05), every day | Auto-close sessions open longer than `MAX_SESSION_HOURS`: check-out is set so net time = the member's expected hours (never later than now). DM to the member, flag in `#attendance-admin`, audit log, custom status restored. |
+
+**Task check (10:00).** Only issues assigned to tracked members with a **linked GitHub login** count; issues of other GitHub users are ignored.
+
+- ⚠️ **Overdue:** open, not Done, due date before today — grouped by member.
+- 🐢 **Stale:** *In progress* with no issue update (comments, edits, labels) since the start of the day 3 working days ago **and** no commit since then on a branch of its repo named `<number>-…` (first 100 branches). If the branch check fails, the issue isn't called stale.
+- 😴 **No open tasks** (Mondays only): linked members with no open task on the Project.
+
+Each team's check runs once a day (`job_runs`); if GitHub fails it retries twice (after 30 s and 2 min), then skips that day.
 
 Members are read from each team's Mattermost member list (bots and deactivated users excluded) and registered automatically, so people who never used `/att` still show as "not checked in". Each run is recorded in `job_runs`, so a restart never sends anything twice; a daily job missed during a restart still runs if the service is back within 2 hours.
 

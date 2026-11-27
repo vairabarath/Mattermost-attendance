@@ -37,6 +37,8 @@ type Task struct {
 	Priority string // High, Medium, Low or ""
 	Due      string // YYYY-MM-DD or ""
 	Updated  time.Time
+	// Assignees: GitHub logins (set by TeamTaskSource.ProjectTasks only).
+	Assignees []string
 }
 
 // Overdue reports whether the task's due date is before today (YYYY-MM-DD).
@@ -239,11 +241,15 @@ func (s *Service) verifyGitHubLogin(ctx context.Context, teamID, login string) (
 // --- /att tasks ---
 
 func (s *Service) tasks(ctx context.Context, c Command, args string) (Reply, error) {
-	if strings.TrimSpace(args) != "" {
-		return text("Usage: `/att tasks`"), nil
+	fields := strings.Fields(args)
+	if len(fields) > 1 || len(fields) == 1 && !strings.HasPrefix(fields[0], "@") {
+		return text("Usage: `/att tasks` · admins: `/att tasks @user`"), nil
 	}
 	if s.Tasks == nil || !s.Tasks.Configured(c.TeamID) {
 		return text("GitHub isn't set up for **" + s.Teams.TeamName(c.TeamID) + "** yet."), nil
+	}
+	if len(fields) == 1 {
+		return s.memberTasks(ctx, c, fields[0])
 	}
 	ms, err := s.Store.GetMember(ctx, c.UserID)
 	if err != nil {

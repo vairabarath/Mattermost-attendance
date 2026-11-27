@@ -613,9 +613,13 @@ func RenderEOD(name string, net time.Duration, modes map[string]bool, r EODRepor
 
 const eodUsage = "Usage:\n" +
 	"- `/att eod` — your end-of-day report for today in this team\n" +
-	"- `/att eod submit` — open the report form (today, or yesterday until 11:00)"
+	"- `/att eod submit` — open the report form (today, or yesterday until 11:00)\n" +
+	"- " + eodAdminUsage
 
 func (s *Service) eod(ctx context.Context, c Command, args string) (Reply, error) {
+	if f := strings.Fields(args); len(f) > 0 && (strings.HasPrefix(f[0], "@") || strings.EqualFold(f[0], "team")) {
+		return s.eodAdmin(ctx, c, f)
+	}
 	switch strings.ToLower(strings.TrimSpace(args)) {
 	case "":
 		return s.eodShow(ctx, c)

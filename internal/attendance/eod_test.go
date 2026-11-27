@@ -89,7 +89,8 @@ type eodStore struct {
 	reports  map[string]*EODReport // user/team/day
 	threads  map[string]string
 	nextID   int64
-	picks    map[string][]string // user/team/day → urls
+	picks    map[string][]string  // user/team/day → urls
+	others   map[string][]Session // other users' sessions (admin views)
 }
 
 func (f *eodStore) AddTaskPick(_ context.Context, u, t, d, url string) error {

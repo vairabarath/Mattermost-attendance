@@ -39,6 +39,7 @@ type Store interface {
 	EODStore
 	EODSyncStore
 	PickStore
+	EODAdminStore
 	// MemberRefreshedAt reports when a member's profile was last synced.
 	MemberRefreshedAt(ctx context.Context, userID string) (t time.Time, found bool, err error)
 	UpsertMember(ctx context.Context, userID, username, displayName string) error
@@ -503,6 +504,9 @@ func helpText(admin bool) string {
 			"| `/att export [YYYY-MM]` | CSV of this team's sessions, sent to you by DM |",
 			"| `/att wfh pending` | Pending WFH requests (decide with the buttons in #attendance-admin) |",
 			"| `/att wfh all` | Every WFH request in this team: who's WFH today, last 30 days and upcoming |",
+			"| `/att tasks @user` | A member's open tasks on this team's GitHub Project |",
+			"| `/att eod @user [YYYY-MM-DD]` | A member's end-of-day report (default today) |",
+			"| `/att eod team [YYYY-MM-DD]` | Everyone's end-of-day reports as a table: hours, sent, done, blocked, GitHub sync |",
 		)
 	}
 	return strings.Join(lines, "\n")

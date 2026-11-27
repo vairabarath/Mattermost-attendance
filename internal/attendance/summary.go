@@ -45,6 +45,10 @@ type SummaryInput struct {
 	Usernames map[string]string    // user id → username, for people not in Roster
 	Sessions  map[string][]Session // per user: all sessions overlapping the day, all teams
 	OnLeave   func(userID string) bool
+	// EOD (user → this team's report for the day) adds the EOD columns;
+	// nil leaves them out. EODThread links the day's EOD thread.
+	EOD       map[string]EODStatus
+	EODThread string
 }
 
 // BuildDailySummary renders the 20:00 summary for one team (spec section 9).
@@ -63,6 +67,7 @@ func BuildDailySummary(in SummaryInput) string {
 	}
 
 	type row struct {
+		uid   string
 		who   string
 		net   time.Duration
 		modes map[string]bool
@@ -74,7 +79,7 @@ func BuildDailySummary(in SummaryInput) string {
 
 	for uid, sessions := range in.Sessions {
 		perTeam := TeamTotalsForDay(NetByDay(sessions, in.Now, in.Loc), day)
-		r := row{who: name(uid), modes: map[string]bool{}}
+		r := row{uid: uid, who: name(uid), modes: map[string]bool{}}
 		inThisTeam := false
 		for _, s := range sessions {
 			if !overlapsDay(s, day, in.Now, in.Loc) {
@@ -119,9 +124,27 @@ func BuildDailySummary(in SummaryInput) string {
 	if len(worked) == 0 {
 		b.WriteString("Nobody checked in to this team today.\n")
 	} else {
-		fmt.Fprintf(&b, "**Worked today: %d** · 🏠 WFH: %d\n\n| Member | Hours | Mode |\n|---|---|---|\n", len(worked), wfh)
+		fmt.Fprintf(&b, "**Worked today: %d** · 🏠 WFH: %d\n\n", len(worked), wfh)
+		if in.EOD == nil {
+			b.WriteString("| Member | Hours | Mode |\n|---|---|---|\n")
+		} else {
+			b.WriteString("| Member | Hours | Mode | EOD | Done | Blocked |\n|---|---|---|---|---|---|\n")
+		}
 		for _, r := range worked {
-			fmt.Fprintf(&b, "| %s | %s | %s |\n", r.who, FormatDuration(r.net), modesIcons(r.modes))
+			fmt.Fprintf(&b, "| %s | %s | %s |", r.who, FormatDuration(r.net), modesIcons(r.modes))
+			if in.EOD != nil {
+				if rep, ok := in.EOD[r.uid]; ok {
+					fmt.Fprintf(&b, " ✅ | %d | %s |", rep.Done, blockedCell(rep.Blocked))
+				} else if r.open != nil {
+					b.WriteString(" ⏳ | | |") // still working: the form opens at check-out
+				} else {
+					b.WriteString(" ❌ | | |")
+				}
+			}
+			b.WriteString("\n")
+		}
+		if in.EODThread != "" {
+			fmt.Fprintf(&b, "\n📝 [Today's end-of-day reports](%s)\n", in.EODThread)
 		}
 	}
 
@@ -191,4 +214,11 @@ func fmtLocalClock(t, now time.Time, loc *time.Location) string {
 		return t.In(loc).Format("3:04 PM")
 	}
 	return t.In(loc).Format("2 Jan, 3:04 PM")
+}
+
+func blockedCell(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	return fmt.Sprintf("%d 🚧", n)
 }

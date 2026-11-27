@@ -83,9 +83,11 @@ func run(log *slog.Logger) error {
 		Log:       log,
 		Now:       time.Now,
 	}
+	var teamTasks attendance.TeamTaskSource // stays a nil interface when GitHub is off
 	if tasks := newTaskSource(cfg, log); tasks != nil {
 		svc.Tasks = tasks
 		svc.Writer = tasks
+		teamTasks = tasks
 		go tasks.Warm(ctx)
 	}
 	svc.StartEODSync(ctx)
@@ -103,6 +105,8 @@ func run(log *slog.Logger) error {
 		Log:        log.With("component", "jobs"),
 		Now:        time.Now,
 		EODRetry:   svc.RetryEODSyncs,
+		GitHub:     teamTasks,
+		Links:      mm,
 	}
 	stopJobs := jobs.Start(ctx)
 	defer stopJobs()

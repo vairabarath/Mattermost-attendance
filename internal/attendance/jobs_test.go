@@ -82,6 +82,21 @@ type fakeJobStore struct {
 	audits   []AuditEntry
 	holidays []Holiday
 	wfh      []WFHRequest
+	eod      []EODStatus
+	roots    map[string]string // team/day → root post
+}
+
+func (f *fakeJobStore) EODStatuses(_ context.Context, team, from, to string) ([]EODStatus, error) {
+	var out []EODStatus
+	for _, s := range f.eod {
+		if (team == "" || s.TeamID == team) && s.Day >= from && s.Day <= to {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+func (f *fakeJobStore) EODThreadRoot(_ context.Context, team, day string) (string, error) {
+	return f.roots[team+"/"+day], nil
 }
 
 func newFakeJobStore() *fakeJobStore {

@@ -628,3 +628,45 @@ func TestIntegrationTaskPicks(t *testing.T) {
 		}
 	}
 }
+
+func TestIntegrationEODStatuses(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	save := func(user, team, day string, items ...attendance.EODItem) {
+		t.Helper()
+		if _, err := s.SaveEODReport(ctx, attendance.EODReport{UserID: user, TeamID: team, Day: day, DidToday: "Worked on things", Items: items}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	it := func(n, status string) attendance.EODItem {
+		return attendance.EODItem{IssueURL: "https://github.com/o/r/issues/" + n, NewStatus: status}
+	}
+	save(u1, teamA, "2026-11-26", it("1", "Done"), it("2", "Done"), it("3", "Blocked"), it("4", "In review"))
+	save(u2, teamA, "2026-11-26") // no items
+	save(u1, teamB, "2026-11-26", it("5", "Done"))
+	save(u1, teamA, "2026-11-25", it("6", "Done"))
+
+	got, err := s.EODStatuses(ctx, teamA, "2026-11-26", "2026-11-26")
+	if err != nil || len(got) != 2 {
+		t.Fatalf("got %+v %v", got, err)
+	}
+	byUser := map[string]attendance.EODStatus{got[0].UserID: got[0], got[1].UserID: got[1]}
+	if r := byUser[u1]; r.Done != 2 || r.Blocked != 1 || r.Day != "2026-11-26" || r.SyncStatus != "pending" {
+		t.Errorf("u1: %+v", r)
+	}
+	if r := byUser[u2]; r.Done != 0 || r.Blocked != 0 || r.SyncStatus != "synced" {
+		t.Errorf("u2 (no items): %+v", r)
+	}
+	if all, _ := s.EODStatuses(ctx, "", "2026-11-25", "2026-11-26"); len(all) != 4 {
+		t.Errorf("all teams, two days: %+v", all)
+	}
+
+	if root, err := s.EODThreadRoot(ctx, teamA, "2026-11-26"); err != nil || root != "" {
+		t.Errorf("no thread yet: %q %v", root, err)
+	}
+	if _, err := s.EnsureEODThread(ctx, teamA, "2026-11-26", func() (string, error) { return "post1", nil }); err != nil {
+		t.Fatal(err)
+	}
+	if root, _ := s.EODThreadRoot(ctx, teamA, "2026-11-26"); root != "post1" {
+		t.Errorf("root %q", root)
+	}
+}

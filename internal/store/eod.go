@@ -249,3 +249,47 @@ func (s *Store) ensureReportPost(ctx context.Context, reportID int64, column str
 	}
 	return id, true, tx.Commit(ctx)
 }
+
+var _ attendance.EODAdminStore = (*Store)(nil)
+
+// EODStatuses lists the reports on days in [fromDay, toDay], for teamID
+// ("" = all teams), with their Done and Blocked item counts.
+func (s *Store) EODStatuses(ctx context.Context, teamID, fromDay, toDay string) ([]attendance.EODStatus, error) {
+	from, err := dateParam(fromDay)
+	if err != nil {
+		return nil, err
+	}
+	to, err := dateParam(toDay)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT r.mm_user_id, r.team_id, to_char(r.day, 'YYYY-MM-DD'), r.sync_status,
+		       count(i.issue_url) FILTER (WHERE i.new_status = 'Done'),
+		       count(i.issue_url) FILTER (WHERE i.new_status = 'Blocked')
+		FROM eod_reports r LEFT JOIN eod_items i ON i.report_id = r.id
+		WHERE r.day BETWEEN $2 AND $3 AND ($1 = '' OR r.team_id = $1)
+		GROUP BY r.id ORDER BY r.day, r.mm_user_id`, teamID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (attendance.EODStatus, error) {
+		var st attendance.EODStatus
+		err := row.Scan(&st.UserID, &st.TeamID, &st.Day, &st.SyncStatus, &st.Done, &st.Blocked)
+		return st, err
+	})
+}
+
+// EODThreadRoot is the root post of the team's EOD thread for day, or "".
+func (s *Store) EODThreadRoot(ctx context.Context, teamID, day string) (string, error) {
+	d, err := dateParam(day)
+	if err != nil {
+		return "", err
+	}
+	var root string
+	err = s.Pool.QueryRow(ctx, `SELECT root_post_id FROM eod_threads WHERE team_id = $1 AND day = $2`, teamID, d).Scan(&root)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return root, err
+}
