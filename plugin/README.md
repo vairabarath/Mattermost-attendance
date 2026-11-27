@@ -29,7 +29,8 @@ The version is `version` in `plugin.json`.
 
 | Path | What |
 |---|---|
-| `plugin.json` | id `com.bittrix.attendance`, version, settings |
+| `plugin.json` | id `com.bittrix.attendance`, version, settings; server binary for Linux amd64 only |
+| `public/` | files served at `/plugins/com.bittrix.attendance/public/` (app-bar icon) |
 | `server/` | Go: settings, HTTP bridge to the bot, live events |
-| `webapp/src/` | React/TypeScript panel; `client.ts` calls the plugin's API (adds Mattermost's CSRF token) |
+| `webapp/src/` | React/TypeScript: `index.tsx` (app bar, panel, live events), `panel/` (the panel), `api.ts` (bot API types and calls), `client.ts` (adds Mattermost's CSRF token) |
 | `build/` | template build tools (manifest, pluginctl) |

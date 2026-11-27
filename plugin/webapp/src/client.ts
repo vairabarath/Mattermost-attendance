@@ -14,6 +14,9 @@ export function setSiteURL(siteURL: string | undefined) {
     basePath = siteURL ? new URL(siteURL).pathname.replace(/\/$/, '') : '';
 }
 
+// publicURL is a file in the plugin's public/ folder, e.g. the app-bar icon.
+export const publicURL = (file: string) => `${basePath}/plugins/${manifest.id}/public/${file}`;
+
 // doFetch calls /plugins/<id>/api/v1<path>. Client4.getOptions adds
 // X-Requested-With and, for non-GET requests, the session's CSRF token;
 // without the token Mattermost forwards the request as unauthenticated.

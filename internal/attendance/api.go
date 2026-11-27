@@ -31,8 +31,10 @@ type SessionState struct {
 	Mode       string     `json:"mode"` // office, wfh
 	OnBreak    bool       `json:"on_break"`
 	BreakSince *time.Time `json:"break_since,omitempty"`
-	// NetMinutes is this session's work so far (breaks excluded).
+	// NetMinutes / NetSeconds: this session's work so far (breaks
+	// excluded). The panel ticks the seconds on from here.
 	NetMinutes int `json:"net_minutes"`
+	NetSeconds int `json:"net_seconds"`
 }
 
 // MeState is everything the panel's status card needs.
@@ -46,6 +48,8 @@ type MeState struct {
 	// Today's net work: in this team and in all organizations.
 	TodayTeamMinutes int `json:"today_team_minutes"`
 	TodayAllMinutes  int `json:"today_all_minutes"`
+	TodayTeamSeconds int `json:"today_team_seconds"`
+	TodayAllSeconds  int `json:"today_all_seconds"`
 }
 
 // Session actions for Act.
@@ -109,7 +113,7 @@ func (s *Service) Me(ctx context.Context, userID, teamID string) (MeState, error
 		for _, d := range NetByDay([]Session{*open}, now, s.Loc) {
 			net += d
 		}
-		ss.NetMinutes = int(net.Minutes())
+		ss.NetMinutes, ss.NetSeconds = int(net.Minutes()), int(net.Seconds())
 		st.Session = ss
 	}
 
@@ -117,8 +121,8 @@ func (s *Service) Me(ctx context.Context, userID, teamID string) (MeState, error
 	if err != nil {
 		return MeState{}, err
 	}
-	st.TodayTeamMinutes = int(perTeam[teamID].Minutes())
-	st.TodayAllMinutes = int(sum(perTeam).Minutes())
+	st.TodayTeamMinutes, st.TodayTeamSeconds = int(perTeam[teamID].Minutes()), int(perTeam[teamID].Seconds())
+	st.TodayAllMinutes, st.TodayAllSeconds = int(sum(perTeam).Minutes()), int(sum(perTeam).Seconds())
 	return st, nil
 }
 

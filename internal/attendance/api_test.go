@@ -64,7 +64,7 @@ func TestPanelMeAndActions(t *testing.T) {
 	}
 	now = istAt(2026, 11, 27, 11, 30)
 	me, _ = svc.Me(ctx, "u", "A")
-	if me.Session == nil || !me.Session.OnBreak || me.Session.BreakSince == nil || me.Session.NetMinutes != 120 ||
+	if me.Session == nil || !me.Session.OnBreak || me.Session.BreakSince == nil || me.Session.NetMinutes != 120 || me.Session.NetSeconds != 7200 || me.TodayAllSeconds != 7200 ||
 		me.Session.Mode != "office" || me.Session.Team.ID != "A" || me.TodayTeamMinutes != 120 || me.TodayAllMinutes != 120 {
 		t.Fatalf("on break: %+v %+v", me, me.Session)
 	}

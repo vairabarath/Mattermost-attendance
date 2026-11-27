@@ -2,13 +2,12 @@
     "id": "com.bittrix.attendance",
     "name": "Attendance",
     "description": "Attendance, tasks and end-of-day reports in a side panel. Talks to the attendance bot; the /att commands keep working.",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "icon_path": "assets/icon.svg",
     "min_server_version": "11.7.0",
     "server": {
         "executables": {
-            "linux-amd64": "server/dist/plugin-linux-amd64",
-            "linux-arm64": "server/dist/plugin-linux-arm64"
+            "linux-amd64": "server/dist/plugin-linux-amd64"
         }
     },
     "webapp": {

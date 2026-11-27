@@ -14,7 +14,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 |---|---|---|---|
 | **0** | Decisions and groundwork | ✅ | 27 Nov |
 | **1** | Bot JSON API + plugin bridge (no UI yet) | ✅ live-tested | 27 Nov · bot `8a99918`, plugin 0.2.0 |
-| **2** | Member panel: status, live timer, check in / break / check out | ⬜ | — |
+| **2** | Member panel: status, live timer, check in / break / check out | 🟦 built and tested — waiting for your OK to deploy | — |
 | **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ⬜ | — |
 | **4** | End-of-day report form in the panel | ⬜ | — |
 | **5** | Live updates (panel refreshes itself) | ⬜ | — |
@@ -216,12 +216,18 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Deploy: secret into `.env`, bot, plugin (0.5–0.7); plugin uploads back to `false`
 - [x] Live test (barath, Bittrix, desktop app session): health ✅ 0.2.0 · `/me` ✅ · unknown team → 400 ✅ · forged identity headers ignored ✅ · `..` escape → 404 ✅ · POST without CSRF token or XHR header → 401 ✅ · session cookie not readable by scripts ✅ · check in / check out through the plugin → same messages as `/att` ✅ · `session_changed` reached the browser's websocket within a second of each ✅ · no errors in the bot log ✅
 
-### Phase 2 — Member panel: status and session ⬜
-- [ ] App-bar icon + right-hand panel; team switcher
-- [ ] Status card with live timer (ticks locally, re-syncs from `/me`)
-- [ ] Check in (note), Break / Back, Check out (→ EOD form)
-- [ ] Loading, error and empty states; theme (light/dark) check
-- [ ] Tests (Jest/RTL) for each state
+### Phase 2 — Member panel: status and session 🟦
+- [x] App-bar icon (public/icon.svg) toggles the panel in the right-hand side
+- [x] Panel follows the Mattermost team you're looking at (switch teams in Mattermost's sidebar); a non-attendance team (e.g. HQ) says so. *An in-panel team switcher isn't needed for now.*
+- [x] Status card: Working / On break / Not checked in, live timer (ticks locally from the bot's `net_seconds`, re-syncs on every load), since-time, 🏢/🏠, break length; "in <other team>" when checked in elsewhere
+- [x] Check in (optional note), Break / Back, Check out with a confirmation step; the bot's reply shown with Mattermost's own markdown formatter (sanitised), dismissible
+- [x] Today here / all orgs (ticking)
+- [x] Refresh: live events (`session_changed` etc.), reconnects, window becoming visible, every 5 min
+- [x] Loading, error + retry, action errors; theme colours from Mattermost CSS variables (light/dark); focus outlines; aria labels
+- [x] Bot: `/me` also returns seconds (`net_seconds`, `today_*_seconds`)
+- [x] Tests: 10 Jest/RTL tests (states, timer, break, confirm, errors, live refresh); lint clean (also in CI)
+- [x] Plugin 0.3.0; Linux amd64 only (the server is x86_64) → bundle 15 MB
+- [ ] Deploy (bot + plugin)
 - [ ] Live test with you in the desktop app
 
 ### Phase 3 — Tasks ⬜
