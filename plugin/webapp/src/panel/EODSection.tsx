@@ -45,7 +45,9 @@ export default function EODSection({teamId, open, onOpen, onClose}: Props) {
     }, [open, load]);
 
     // Never reload under an open form: it would wipe what's being typed.
-    useRefresh(['eod_changed', 'session_changed'], load, !open);
+    // (Check-in / check-out arrive as eod_changed from the status card: a
+    // break doesn't change anything here.)
+    useRefresh(['eod_changed'], load, !open);
 
     if (open) {
         if (!form) {

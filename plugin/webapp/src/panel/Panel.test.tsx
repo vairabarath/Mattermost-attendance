@@ -180,3 +180,28 @@ test('live events reload the panel and clear an old reply', async () => {
     await new Promise((r) => setTimeout(r, 400));
     expect(mocked.fetchMe).toHaveBeenCalledTimes(calls);
 });
+
+test('the end-of-day card is told about check-in/out, not about breaks', async () => {
+    const seen: string[] = [];
+    const listen = (e: Event) => seen.push((e as CustomEvent).detail?.event);
+    window.addEventListener('attendance:refresh', listen);
+    try {
+        mocked.fetchMe.mockResolvedValue(me({session: working()}));
+        renderPanel();
+        expect(await screen.findByText('Working')).toBeInTheDocument();
+
+        mocked.act.mockResolvedValue({message: '☕', me: me({session: working({on_break: true, break_since: new Date().toISOString()})})});
+        await userEvent.click(screen.getByText('☕ Break'));
+        expect(await screen.findByText('On break')).toBeInTheDocument();
+        expect(seen).not.toContain('eod_changed');
+
+        mocked.act.mockResolvedValue({message: '🔴', me: me()});
+        mocked.fetchEOD.mockResolvedValue({available: false, message: 'x'} as api.EODForm);
+        await userEvent.click(screen.getByText('🔴 Check out'));
+        await userEvent.click(screen.getByText('Yes, check out'));
+        await screen.findByText('Back');
+        expect(seen).toContain('eod_changed');
+    } finally {
+        window.removeEventListener('attendance:refresh', listen);
+    }
+});

@@ -5,7 +5,7 @@
 import {act, fetchMe} from 'api';
 import type {Me, SessionAction} from 'api';
 import {clock, hm, timeOfDay} from 'format';
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useSelector} from 'react-redux';
 
 import type {GlobalState} from '@mattermost/types/store';
@@ -94,6 +94,20 @@ export default function Panel() {
             window.clearInterval(id);
         };
     }, []);
+
+    // Checking in or out (here, in chat or in another window) changes what
+    // the end-of-day card shows; a break doesn't. Tell the card only then.
+    const wasIn = useRef<boolean | null>(null);
+    const isIn = me ? Boolean(me.session) : null;
+    useEffect(() => {
+        if (isIn === null) {
+            return;
+        }
+        if (wasIn.current !== null && wasIn.current !== isIn) {
+            requestRefresh('eod_changed', teamId);
+        }
+        wasIn.current = isIn;
+    }, [isIn, teamId]);
 
     const session = me?.session ?? null;
     const ticking = Boolean(session && !session.on_break);

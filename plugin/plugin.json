@@ -2,7 +2,7 @@
     "id": "com.bittrix.attendance",
     "name": "Attendance",
     "description": "Attendance, tasks and end-of-day reports in a side panel. Talks to the attendance bot; the /att commands keep working.",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "icon_path": "assets/icon.svg",
     "min_server_version": "11.7.0",
     "server": {
