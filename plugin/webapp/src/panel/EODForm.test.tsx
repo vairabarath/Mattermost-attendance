@@ -21,9 +21,9 @@ const form = (over: Partial<Form> = {}): Form => ({
     day: '2026-11-27',
     day_label: 'Fri 27 Nov',
     statuses: ['In progress', 'In review', 'Blocked', 'Done'],
-    no_change: 'No change',
+    no_change: 'no_change', // the bot's value; shown as "No change"
     tasks: [
-        {number: 7, title: 'Domain renewal with the full long title', url: 'https://github.com/o/ops/issues/7', repo: 'o/ops', status: 'In progress', choice: 'No change'},
+        {number: 7, title: 'Domain renewal with the full long title', url: 'https://github.com/o/ops/issues/7', repo: 'o/ops', status: 'In progress', choice: 'no_change'},
         {number: 8, title: 'Pricing page', url: 'https://github.com/o/ops/issues/8', repo: 'o/ops', status: 'Todo', choice: 'Blocked'},
     ],
     done: [{number: 4, title: 'Renew domain', url: 'u4', repo: 'o/ops'}],
@@ -52,6 +52,7 @@ test('shows every part of the report with full titles and pre-selected choices',
     const g7 = screen.getByRole('radiogroup', {name: /#7/});
     expect(within(g7).getAllByRole('radio')).toHaveLength(5);
     expect(within(g7).getByRole('radio', {name: 'No change'})).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByText('no_change')).not.toBeInTheDocument();
     expect(within(screen.getByRole('radiogroup', {name: /#8/})).getByRole('radio', {name: 'Blocked'})).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByText(/✅ Renew domain/)).toBeInTheDocument();
     expect(screen.getByRole('checkbox', {name: /Hiring post/})).not.toBeChecked();

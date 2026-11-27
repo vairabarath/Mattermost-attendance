@@ -132,7 +132,7 @@ export default function EODForm({teamId, form, onDone, onCancel}: Props) {
                                             aria-checked={choices[name] === o}
                                             className={`att-seg-btn att-seg-btn--${STATUS_KEY[o] ?? 'none'}${choices[name] === o ? ' is-on' : ''}`}
                                             onClick={() => setChoices({...choices, [name]: o})}
-                                        >{o}</button>
+                                        >{o === form.no_change ? 'No change' : o}</button>
                                     ))}
                                 </div>
                                 {errors[name] && <div className='att-field-error'>{errors[name]}</div>}
