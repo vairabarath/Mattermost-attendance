@@ -148,6 +148,8 @@ The bot looks fields and options up **by name** (never hard-coded ids), caches t
 
 The free plan allows one auto-add workflow per Project: issues in other repos are added by hand (Project → *Add item*), or by the bot when a member reports on them. Put non-code work (admin, finance, hiring, client) in an `operations` repo so every task is an issue.
 
+**Team repo templates:** [`docs/team-workflow/`](docs/team-workflow/README.md) has a `CLAUDE.md`/`AGENTS.md` with these rules for people and AI agents, a GitHub *Task* issue template, and a `/eod` Claude Code command that drafts the end-of-day text from today's commits — copy them into each project repo.
+
 Repo conventions: one branch per issue named `<number>-description` (e.g. `42-session-timeout`) — the EOD activity line and the stale check read these; the final commit on the default branch says `Closes #42`. Commits count only when the commit email is linked to the member's GitHub account.
 
 ### Adding GitHub for another team
