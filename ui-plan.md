@@ -2,7 +2,7 @@
 
 A side panel inside Mattermost for attendance, tasks and end-of-day reports, so people click instead of typing `/att` commands. Built as a **Mattermost plugin** that talks to the existing bot. Slash commands stay (mobile app, power users).
 
-_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 2 done — next: Phase 3 (tasks in the panel)**_
+_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 3 done — next: Phase 4 (end-of-day form in the panel)**_
 
 ---
 
@@ -15,7 +15,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **0** | Decisions and groundwork | ✅ | 27 Nov |
 | **1** | Bot JSON API + plugin bridge (no UI yet) | ✅ live-tested | 27 Nov · bot `8a99918`, plugin 0.2.0 |
 | **2** | Member panel: status, live timer, check in / break / check out | ✅ live-tested | 27 Nov · plugin 0.3.1 |
-| **3** | Tasks in the panel: list, pick today's task, 🆕 badges | 🟦 built and tested — waiting for your OK to deploy | — |
+| **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ✅ live-tested | 27 Nov · bot `c63a3e4`, plugin 0.4.0 |
 | **4** | End-of-day report form in the panel | ⬜ | — |
 | **5** | Live updates (panel refreshes itself) | ⬜ | — |
 | **6** | Hours and WFH in the panel | ⬜ | — |
@@ -232,15 +232,15 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Fixed after the live test: an old reply stayed under the new state after a change from chat → cleared on live refresh (0.3.1, live re-checked ✅)
 - [x] Also fixed: a flaky bot test (`TestAPIAuth` depended on map order)
 
-### Phase 3 — Tasks 🟦
+### Phase 3 — Tasks ✅
 - [x] Bot: `GET /api/v1/tasks` (same list as `/att tasks`: sorted, overdue, off-board, picked today; off-board issues added to the board in the background) and `POST /api/v1/tasks/pick` (runs the chat pick menu's code: org check, assignment check on GitHub, records the pick)
 - [x] Bot: a pick (panel or chat menu) sends `tasks_changed` so open panels refresh
 - [x] Panel "Your tasks": status chip (Todo / In progress / In review / Blocked), title linking to GitHub (new tab), priority, due date (⚠️ overdue), 🆕 added to the board, ✓ Today for picked; Pick button per task with the bot's reply; 6 shown + "Show all N"
 - [x] States: loading, not linked (ask an admin), GitHub down (Try again), no open tasks 🎉, hidden in teams without GitHub
 - [x] Tests: bot (list states and flags, pick + notification, non-member, other org refused, endpoint input checks); panel (5 new: list marks, pick, show all, states + retry, pick error + live refresh); titles shown as text, never HTML
 - [x] Plugin 0.4.0
-- [ ] Deploy (bot + plugin)
-- [ ] Live test
+- [x] Deploy: bot `c63a3e4`, plugin 0.4.0; uploads back to `false`
+- [x] Live test (barath, Bittrix): panel lists #7 (Blocked, ⚠️ overdue, ✓ Today) and the new test issue #8 (Todo, Pick) ✅ · Pick on #8 → "now In progress", chip → In progress, ✓ Today ✅ · GitHub board #8 = In progress ✅ · `/att tasks` in chat shows the same list ✅
 
 ### Phase 4 — End-of-day form ⬜
 - [ ] Bot: `GET /eod`, `POST /eod` (shared validation with the dialog)
@@ -299,6 +299,7 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 
 ## Changelog
 
+- **27 Nov 2026** — Phase 3 deployed and live-tested: "Your tasks" in the panel with Pick. Plugin 0.4.0.
 - **27 Nov 2026** — Phase 2 deployed and live-tested: the Attendance panel (app-bar icon, live timer, check in / break / back / check out, live refresh). Plugin 0.3.1.
 - **27 Nov 2026** — Phase 1 deployed and live-tested (bot API + plugin 0.2.0 bridge + live events). Install needed the upload switch briefly; scripted on → install → off.
 - **27 Nov 2026** — Phase 0: decisions D1–D3 agreed (D3 = B); Mattermost checked (local mode already on); `plugin/` skeleton builds; CI job added.
