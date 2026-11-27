@@ -225,8 +225,9 @@ func (a *App) once(ctx context.Context, auth, method, path string, body []byte) 
 	}
 
 	remaining := resp.Header.Get("X-RateLimit-Remaining")
-	if n, err := strconv.Atoi(remaining); err == nil && n < 100 {
-		a.log.Warn("github rate limit low", "path", path, "remaining", n, "reset", resp.Header.Get("X-RateLimit-Reset"))
+	if n, err := strconv.Atoi(remaining); err == nil && rateLimitLow(n, resp.Header.Get("X-RateLimit-Limit")) {
+		a.log.Warn("github rate limit low", "path", path, "remaining", n,
+			"limit", resp.Header.Get("X-RateLimit-Limit"), "reset", resp.Header.Get("X-RateLimit-Reset"))
 	}
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
 		if remaining == "0" || resp.Header.Get("Retry-After") != "" {
@@ -392,4 +393,14 @@ func (a *App) GraphQL(ctx context.Context, org, query string, vars map[string]an
 		return nil
 	}
 	return json.Unmarshal(env.Data, out)
+}
+
+// rateLimitLow is true when under 10% of the bucket's limit is left. Buckets
+// differ a lot (search allows 30 a minute, REST 5000 an hour), so a fixed
+// threshold would warn on every search call. Without a limit header, < 100.
+func rateLimitLow(remaining int, limit string) bool {
+	if l, err := strconv.Atoi(limit); err == nil && l > 0 {
+		return remaining*10 < l
+	}
+	return remaining < 100
 }

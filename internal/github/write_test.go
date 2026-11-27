@@ -87,7 +87,7 @@ func TestApplyEODStatusRefusesOthersIssues(t *testing.T) {
 	f, srv := newFake(t)
 	wf := &writeFake{resource: issueResource("someone-else", "OPEN", nil, true)}
 	f.extra = wf.handler(t)
-	err := newTestTasks(t, srv).ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Done", "c")
+	_, err := newTestTasks(t, srv).ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Done", "c")
 	if !errors.Is(err, attendance.ErrNotAssigned) {
 		t.Fatalf("want ErrNotAssigned, got %v", err)
 	}
@@ -102,8 +102,8 @@ func TestApplyEODStatusBlockedThenDone(t *testing.T) {
 	f.extra = wf.handler(t)
 	tasks := newTestTasks(t, srv)
 
-	if err := tasks.ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Blocked", "📝 EOD"); err != nil {
-		t.Fatal(err)
+	if closed, err := tasks.ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Blocked", "📝 EOD"); err != nil || closed {
+		t.Fatal(closed, err)
 	}
 	if strings.Join(wf.mutations, ";") != "status item=PVTI_42 field=PVTSSF_status option=b1c2d3e4" {
 		t.Errorf("mutations: %v", wf.mutations)
@@ -120,8 +120,8 @@ func TestApplyEODStatusBlockedThenDone(t *testing.T) {
 	// Done on a blocked issue: status, label removed, issue closed, comment.
 	wf.mutations, wf.rest = nil, nil
 	wf.resource = issueResource("Jana-Dev", "OPEN", []string{"Blocked", "bug"}, true)
-	if err := tasks.ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Done", "done"); err != nil {
-		t.Fatal(err)
+	if closed, err := tasks.ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Done", "done"); err != nil || !closed {
+		t.Fatal(closed, err)
 	}
 	if strings.Join(wf.mutations, ";") != "status item=PVTI_42 field=PVTSSF_status option=98236657;close" {
 		t.Errorf("mutations: %v", wf.mutations)
@@ -133,13 +133,13 @@ func TestApplyEODStatusBlockedThenDone(t *testing.T) {
 	// Not on the team's Project yet: it's added first. Closed issue: not closed again.
 	wf.mutations, wf.rest = nil, nil
 	wf.resource = issueResource("Jana-Dev", "CLOSED", nil, false)
-	if err := tasks.ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Done", "done"); err != nil {
-		t.Fatal(err)
+	if closed, err := tasks.ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Done", "done"); err != nil || closed {
+		t.Fatal(closed, err)
 	}
 	if strings.Join(wf.mutations, ";") != "add-to-project;status item=PVTI_new field=PVTSSF_status option=98236657" {
 		t.Errorf("mutations: %v", wf.mutations)
 	}
-	if err := tasks.ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Shipped", "x"); err == nil {
+	if _, err := tasks.ApplyEODStatus(context.Background(), "A", "Jana-Dev", issueURL, "Shipped", "x"); err == nil {
 		t.Error("unknown status accepted")
 	}
 }
@@ -153,7 +153,7 @@ func TestActivity(t *testing.T) {
 		switch {
 		case r.URL.Path == "/graphql" && strings.Contains(string(body), "reviewed: search"):
 			countVars = string(body)
-			_, _ = io.WriteString(w, `{"data":{"closed":{"issueCount":1},"opened":{"issueCount":0},"merged":{"issueCount":0},"reviewed":{"issueCount":0}}}`)
+			_, _ = io.WriteString(w, `{"data":{"closed":{"issueCount":1,"nodes":[{"url":"https://github.com/inkyank-org/app/issues/40"}]},"opened":{"issueCount":0},"merged":{"issueCount":0},"reviewed":{"issueCount":0}}}`)
 		case r.URL.Path == "/search/commits":
 			commitQuery = r.URL.Query().Get("q")
 			_, _ = io.WriteString(w, `{"total_count":6,"items":[{"repository":{"full_name":"inkyank-org/app"}},{"repository":{"full_name":"inkyank-org/app"}},{"repository":{"full_name":"inkyank-org/web"}}]}`)
@@ -185,7 +185,8 @@ func TestActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Commits != 6 || a.CommitRepos["inkyank-org/app"] != 2 || a.IssuesClosed != 1 || a.PRsOpened != 0 {
+	if a.Commits != 6 || a.CommitRepos["inkyank-org/app"] != 2 || a.IssuesClosed != 1 || a.PRsOpened != 0 ||
+		len(a.ClosedIssues) != 1 || a.ClosedIssues[0] != "https://github.com/inkyank-org/app/issues/40" {
 		t.Errorf("activity: %+v", a)
 	}
 	// Only branches named <number>-… with the member's commits that day.
@@ -200,5 +201,24 @@ func TestActivity(t *testing.T) {
 	}
 	if got := attendance.RenderActivity(a); got != "GitHub: 6 commits to default branches · 1 issue closed · branch: 42" {
 		t.Errorf("rendered (PR counts omitted when zero): %q", got)
+	}
+}
+
+func TestRateLimitLow(t *testing.T) {
+	for _, c := range []struct {
+		remaining int
+		limit     string
+		want      bool
+	}{
+		{25, "30", false}, // search: plenty left, no warning
+		{2, "30", true},
+		{600, "5000", false},
+		{499, "5000", true},
+		{50, "", true}, // no limit header: fixed threshold
+		{150, "", false},
+	} {
+		if got := rateLimitLow(c.remaining, c.limit); got != c.want {
+			t.Errorf("rateLimitLow(%d, %q) = %v", c.remaining, c.limit, got)
+		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,6 +38,9 @@ type Activity struct {
 	PRsOpened    int            `json:"prs_opened"`
 	PRsMerged    int            `json:"prs_merged"`
 	Reviews      int            `json:"reviews"`
+	// ClosedIssues are the URLs of the issues counted in IssuesClosed, as
+	// far as GitHub's search lists them.
+	ClosedIssues []string `json:"closed_issues,omitempty"`
 }
 
 // BranchWork is a `<issue>-…` branch the member committed to that day.
@@ -51,7 +55,8 @@ type TaskWriter interface {
 	// ApplyEODStatus checks the issue is assigned to login (else
 	// ErrNotAssigned), sets its Project Status (closing the issue for
 	// Done), adds or removes the "blocked" label, and posts comment.
-	ApplyEODStatus(ctx context.Context, teamID, login, issueURL, status, comment string) error
+	// closed reports that this call closed the issue (also on a later error).
+	ApplyEODStatus(ctx context.Context, teamID, login, issueURL, status, comment string) (closed bool, err error)
 	// Activity is login's activity in teamID's org on the local day
 	// starting at dayStart.
 	Activity(ctx context.Context, teamID, login string, dayStart time.Time) (*Activity, error)
@@ -222,7 +227,7 @@ func (s *Service) SyncEOD(ctx context.Context, id int64) {
 		return
 	}
 
-	var errs, notes []string
+	var errs, notes, closedNow []string
 	// Keep notes about refused issues from earlier attempts: those items
 	// are settled and won't be tried again.
 	for _, part := range strings.Split(r.SyncError, "; ") {
@@ -235,9 +240,12 @@ func (s *Service) SyncEOD(ctx context.Context, id int64) {
 			continue
 		}
 		wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		err := s.Writer.ApplyEODStatus(wctx, r.TeamID, ms.GitHubLogin, it.IssueURL, it.NewStatus,
+		closed, err := s.Writer.ApplyEODStatus(wctx, r.TeamID, ms.GitHubLogin, it.IssueURL, it.NewStatus,
 			eodComment(r.Day, ms.Username, it.NewStatus, r.DidToday))
 		cancel()
+		if closed {
+			closedNow = append(closedNow, it.IssueURL)
+		}
 		switch {
 		case errors.Is(err, ErrNotAssigned):
 			log.Warn("eod sync: refused, issue not assigned to member", "issue", it.IssueURL)
@@ -260,6 +268,7 @@ func (s *Service) SyncEOD(ctx context.Context, id int64) {
 		errs = append(errs, "activity: "+err.Error())
 		act = nil
 	}
+	addJustClosed(act, closedNow)
 
 	status := "synced"
 	if len(errs) > 0 {
@@ -371,4 +380,19 @@ func syncLine(r EODReport) string {
 		return fmt.Sprintf("GitHub: ⚠️ sync failed (try %d of %d, retrying every 15 min): %s", r.SyncAttempts, maxSyncAttempts, clip(r.SyncError, 200))
 	}
 	return "GitHub: ⏳ syncing…"
+}
+
+// addJustClosed counts issues this sync closed that GitHub's search doesn't
+// list yet: its index lags a few seconds behind a close. Only when the search
+// listed every closed issue, so a missing URL can't be one past the page.
+func addJustClosed(act *Activity, urls []string) {
+	if act == nil || len(act.ClosedIssues) != act.IssuesClosed {
+		return
+	}
+	for _, u := range urls {
+		if !slices.ContainsFunc(act.ClosedIssues, func(c string) bool { return strings.EqualFold(c, u) }) {
+			act.ClosedIssues = append(act.ClosedIssues, u)
+			act.IssuesClosed++
+		}
+	}
 }

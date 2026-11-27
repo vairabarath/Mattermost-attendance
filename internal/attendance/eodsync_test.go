@@ -58,18 +58,18 @@ type fakeWriter struct {
 	actCalled int
 }
 
-func (w *fakeWriter) ApplyEODStatus(_ context.Context, _, login, url, status, comment string) error {
+func (w *fakeWriter) ApplyEODStatus(_ context.Context, _, login, url, status, comment string) (bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if url == w.notMine {
-		return ErrNotAssigned
+		return false, ErrNotAssigned
 	}
 	if url == w.failURL {
-		return errors.New("github 502")
+		return false, errors.New("github 502")
 	}
 	w.applied = append(w.applied, issueRef(url)+"="+status)
 	w.comments = append(w.comments, comment)
-	return nil
+	return status == StatusDone, nil
 }
 func (w *fakeWriter) Activity(context.Context, string, string, time.Time) (*Activity, error) {
 	w.actCalled++
@@ -121,7 +121,7 @@ func TestSyncEOD(t *testing.T) {
 		t.Errorf("comment %q", w.comments[0])
 	}
 	// The reply now carries the GitHub line.
-	if len(p.updates) == 0 || !strings.Contains(p.updates[len(p.updates)-1], "GitHub: 3 commits to default branches · branch: 45") {
+	if len(p.updates) == 0 || !strings.Contains(p.updates[len(p.updates)-1], "GitHub: 3 commits to default branches · 2 issues closed · branch: 45") {
 		t.Errorf("reply refresh: %q", p.updates)
 	}
 	if out := svc.Handle(context.Background(), Command{TeamID: "A", UserID: "u", Text: "eod"}).Text; !strings.Contains(out, "sync failed (try 1 of 6") {
@@ -218,4 +218,21 @@ func TestMultiValues(t *testing.T) {
 	if multiValues(nil) != nil || multiValues(42) != nil {
 		t.Error("unexpected values")
 	}
+}
+
+func TestAddJustClosed(t *testing.T) {
+	const a, b = "https://github.com/o/r/issues/1", "https://github.com/o/r/issues/2"
+	// Search already lists #1; #2 was closed seconds ago and isn't indexed yet.
+	act := &Activity{IssuesClosed: 1, ClosedIssues: []string{a}}
+	addJustClosed(act, []string{a, b})
+	if act.IssuesClosed != 2 || len(act.ClosedIssues) != 2 {
+		t.Errorf("got %+v", act)
+	}
+	// Search listed only part of the closed issues: don't guess.
+	act = &Activity{IssuesClosed: 150, ClosedIssues: []string{a}}
+	addJustClosed(act, []string{b})
+	if act.IssuesClosed != 150 {
+		t.Errorf("truncated list changed the count: %+v", act)
+	}
+	addJustClosed(nil, []string{b}) // activity failed: no panic
 }

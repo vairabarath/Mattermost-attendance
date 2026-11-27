@@ -67,30 +67,30 @@ func (i *issueInfo) repoPath() string {
 
 // ApplyEODStatus implements attendance.TaskWriter. Every step is safe to
 // repeat, and the comment comes last, so a retry after a partial failure
-// doesn't post it twice.
-func (t *Tasks) ApplyEODStatus(ctx context.Context, teamID, login, issueURL, status, comment string) error {
+// doesn't post it twice. closed reports that this call closed the issue.
+func (t *Tasks) ApplyEODStatus(ctx context.Context, teamID, login, issueURL, status, comment string) (closed bool, err error) {
 	tp, ok := t.teams[teamID]
 	if !ok {
-		return attendance.ErrGitHubNotSetUp
+		return false, attendance.ErrGitHubNotSetUp
 	}
 	schema, err := t.Schema(ctx, teamID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	optionID, ok := schema.Status.Options[status]
 	if !ok {
-		return fmt.Errorf("unknown status %q", status)
+		return false, fmt.Errorf("unknown status %q", status)
 	}
 
 	var out struct {
 		Resource *issueInfo `json:"resource"`
 	}
 	if err := t.app.GraphQL(ctx, tp.Org, issueQuery, map[string]any{"url": issueURL}, &out, false); err != nil {
-		return err
+		return false, err
 	}
 	is := out.Resource
 	if is == nil || is.ID == "" {
-		return fmt.Errorf("issue %s not found", issueURL)
+		return false, fmt.Errorf("issue %s not found", issueURL)
 	}
 	// Only the member's own issues in the team's org (spec §11).
 	assigned := false
@@ -100,7 +100,7 @@ func (t *Tasks) ApplyEODStatus(ctx context.Context, teamID, login, issueURL, sta
 		}
 	}
 	if !assigned || !strings.EqualFold(is.Repository.Owner.Login, tp.Org) {
-		return attendance.ErrNotAssigned
+		return false, attendance.ErrNotAssigned
 	}
 
 	itemID := ""
@@ -120,7 +120,7 @@ func (t *Tasks) ApplyEODStatus(ctx context.Context, teamID, login, issueURL, sta
 		if err := t.app.GraphQL(ctx, tp.Org, `mutation($p: ID!, $c: ID!) {
   addProjectV2ItemById(input: {projectId: $p, contentId: $c}) { item { id } }
 }`, map[string]any{"p": schema.ProjectID, "c": is.ID}, &add, true); err != nil {
-			return fmt.Errorf("add to project: %w", err)
+			return false, fmt.Errorf("add to project: %w", err)
 		}
 		itemID = add.AddProjectV2ItemByID.Item.ID
 	}
@@ -132,7 +132,7 @@ func (t *Tasks) ApplyEODStatus(ctx context.Context, teamID, login, issueURL, sta
 		if errors.As(err, &ge) { // stale field/option ids: look them up again next time
 			t.InvalidateSchema(teamID)
 		}
-		return fmt.Errorf("set status: %w", err)
+		return false, fmt.Errorf("set status: %w", err)
 	}
 
 	hasBlocked := false
@@ -144,16 +144,16 @@ func (t *Tasks) ApplyEODStatus(ctx context.Context, teamID, login, issueURL, sta
 	switch {
 	case status == attendance.StatusBlocked && !hasBlocked:
 		if err := t.addBlockedLabel(ctx, tp.Org, is); err != nil {
-			return err
+			return false, err
 		}
 	case status != attendance.StatusBlocked && hasBlocked:
 		path := fmt.Sprintf("%s/issues/%d/labels/%s", is.repoPath(), is.Number, blockedLabel)
 		r, err := t.app.rest(ctx, tp.Org, http.MethodDelete, path, nil, true)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if r.status/100 != 2 && r.status != http.StatusNotFound {
-			return apiErr(path, r)
+			return false, apiErr(path, r)
 		}
 	}
 
@@ -161,19 +161,20 @@ func (t *Tasks) ApplyEODStatus(ctx context.Context, teamID, login, issueURL, sta
 		if err := t.app.GraphQL(ctx, tp.Org, `mutation($id: ID!) {
   closeIssue(input: {issueId: $id, stateReason: COMPLETED}) { issue { state } }
 }`, map[string]any{"id": is.ID}, nil, true); err != nil {
-			return fmt.Errorf("close issue: %w", err)
+			return false, fmt.Errorf("close issue: %w", err)
 		}
+		closed = true
 	}
 
 	path := fmt.Sprintf("%s/issues/%d/comments", is.repoPath(), is.Number)
 	r, err := t.app.rest(ctx, tp.Org, http.MethodPost, path, map[string]string{"body": comment}, false)
 	if err != nil {
-		return err
+		return closed, err
 	}
 	if r.status/100 != 2 {
-		return apiErr(path, r)
+		return closed, apiErr(path, r)
 	}
-	return nil
+	return closed, nil
 }
 
 // addBlockedLabel creates the repo's "blocked" label if needed, then adds it.
@@ -209,7 +210,7 @@ const (
 )
 
 const activityCountsQuery = `query($closed: String!, $opened: String!, $merged: String!, $reviewed: String!) {
-  closed: search(type: ISSUE, query: $closed, first: 0) { issueCount }
+  closed: search(type: ISSUE, query: $closed, first: 100) { issueCount nodes { ... on Issue { url } } }
   opened: search(type: ISSUE, query: $opened, first: 0) { issueCount }
   merged: search(type: ISSUE, query: $merged, first: 0) { issueCount }
   reviewed: search(type: ISSUE, query: $reviewed, first: 0) { issueCount }
@@ -267,7 +268,13 @@ func (t *Tasks) Activity(ctx context.Context, teamID, login string, dayStart tim
 
 	// Issue and PR counts in one query.
 	var counts struct {
-		Closed, Opened, Merged, Reviewed struct {
+		Closed struct {
+			IssueCount int `json:"issueCount"`
+			Nodes      []struct {
+				URL string `json:"url"`
+			} `json:"nodes"`
+		}
+		Opened, Merged, Reviewed struct {
 			IssueCount int `json:"issueCount"`
 		}
 	}
@@ -282,6 +289,9 @@ func (t *Tasks) Activity(ctx context.Context, teamID, login string, dayStart tim
 	}
 	act.IssuesClosed, act.PRsOpened, act.PRsMerged, act.Reviews =
 		counts.Closed.IssueCount, counts.Opened.IssueCount, counts.Merged.IssueCount, counts.Reviewed.IssueCount
+	for _, n := range counts.Closed.Nodes {
+		act.ClosedIssues = append(act.ClosedIssues, n.URL)
+	}
 
 	branches, err := t.branchWork(ctx, tp.Org, login, from, to)
 	if err != nil {
