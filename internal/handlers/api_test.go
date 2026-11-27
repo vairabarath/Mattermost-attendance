@@ -76,12 +76,12 @@ func TestAPIAuth(t *testing.T) {
 		if rec.Code != c.want {
 			t.Errorf("%s: %d, want %d", name, rec.Code, c.want)
 		}
-		if c.want != http.StatusOK && fp.gotUser != "" {
+		switch {
+		case c.want != http.StatusOK && fp.gotUser != "":
 			t.Errorf("%s: reached the service", name)
+		case c.want == http.StatusOK && (fp.gotUser != user || fp.gotTeam != teamA):
+			t.Errorf("%s: service got %q %q", name, fp.gotUser, fp.gotTeam)
 		}
-	}
-	if fp.gotUser != user || fp.gotTeam != teamA {
-		t.Errorf("service got %q %q", fp.gotUser, fp.gotTeam)
 	}
 }
 
