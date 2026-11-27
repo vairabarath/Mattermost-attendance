@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vairabarath/Mattermost-attendance/internal/attendance"
+	"github.com/vairabarath/Mattermost-attendance/internal/mattermost"
 )
 
 const testSecret = "0123456789abcdef0123456789abcdef-secret"
@@ -17,11 +19,22 @@ const testSecret = "0123456789abcdef0123456789abcdef-secret"
 type fakePanel struct {
 	gotUser, gotTeam, gotAction, gotText string
 	err                                  error
+	gotFields                            map[string]string
+	gotSub                               map[string]any
+	submitRes                            attendance.DialogResult
 }
 
 func (f *fakePanel) PanelTasks(_ context.Context, userID, teamID string) (attendance.TasksState, error) {
 	f.gotUser, f.gotTeam = userID, teamID
 	return attendance.TasksState{Configured: true, Linked: true, Tasks: []attendance.TaskItem{{Number: 7, Title: "Test pick B"}}}, f.err
+}
+func (f *fakePanel) PanelEOD(_ context.Context, userID, teamID, day string) (attendance.EODFormState, error) {
+	f.gotUser, f.gotTeam, f.gotText = userID, teamID, day
+	return attendance.EODFormState{Available: true, Day: "2026-11-27"}, f.err
+}
+func (f *fakePanel) PanelSubmitEOD(_ context.Context, userID, teamID string, fields map[string]string, sub map[string]any) (attendance.DialogResult, error) {
+	f.gotUser, f.gotTeam, f.gotFields, f.gotSub = userID, teamID, fields, sub
+	return f.submitRes, f.err
 }
 func (f *fakePanel) PanelPick(_ context.Context, userID, teamID, url string) (string, error) {
 	f.gotUser, f.gotTeam, f.gotAction, f.gotText = userID, teamID, "pick", url
@@ -121,7 +134,7 @@ func TestAPISession(t *testing.T) {
 	if rec, _ := apiCall(routes, "POST", "/api/v1/session/in?team="+teamA, testSecret, user, `{bad`); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad json: %d", rec.Code)
 	}
-	if rec, _ := apiCall(routes, "POST", "/api/v1/session/in?team="+teamA, testSecret, user, `{"text":"`+strings.Repeat("x", 20<<10)+`"}`); rec.Code != http.StatusBadRequest {
+	if rec, _ := apiCall(routes, "POST", "/api/v1/session/in?team="+teamA, testSecret, user, `{"text":"`+strings.Repeat("x", 50<<10)+`"}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("oversized body: %d", rec.Code)
 	}
 
@@ -161,5 +174,60 @@ func TestAPITasks(t *testing.T) {
 	}
 	if rec, _ := apiCall(routes, "GET", "/api/v1/tasks?team="+teamA, "", user, ""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("no secret: %d", rec.Code)
+	}
+}
+
+func TestAPIEOD(t *testing.T) {
+	h, _ := newHandler()
+	fp := &fakePanel{}
+	h.Panel, h.PluginSecret = fp, testSecret
+	routes := h.Routes()
+
+	if rec, out := apiCall(routes, "GET", "/api/v1/eod?team="+teamA+"&day=2026-11-27", testSecret, user, ""); rec.Code != 200 || out["available"] != true || fp.gotText != "2026-11-27" {
+		t.Fatalf("get: %d %v", rec.Code, out)
+	}
+	if rec, _ := apiCall(routes, "GET", "/api/v1/eod?team="+teamA+"&day=yesterday", testSecret, user, ""); rec.Code != 400 {
+		t.Errorf("bad day: %d", rec.Code)
+	}
+
+	// A state signed by the bot (as in GET /eod) is accepted and passed on verified.
+	signed := mattermost.NewSigner("test-key", time.Hour).Sign(map[string]string{"k": "eod", "u": user, "t": teamA, "d": "2026-11-27", "items": "[]"})
+	state, _ := json.Marshal(signed)
+	body, _ := json.Marshal(map[string]any{"state": string(state), "choices": map[string]string{"s0": "Done"},
+		"others": []string{"1"}, "did": "Finished the work", "blockers": "", "tomorrow": "More"})
+	rec, out := apiCall(routes, "POST", "/api/v1/eod?team="+teamA, testSecret, user, string(body))
+	if rec.Code != 200 || out["eod"] == nil {
+		t.Fatalf("submit: %d %v", rec.Code, out)
+	}
+	if fp.gotFields["u"] != user || fp.gotFields["d"] != "2026-11-27" || fp.gotFields["sig"] != "" {
+		t.Errorf("fields: %v", fp.gotFields)
+	}
+	if fp.gotSub["s0"] != "Done" || fp.gotSub["did"] != "Finished the work" || len(fp.gotSub["others"].([]any)) != 1 {
+		t.Errorf("submission: %v", fp.gotSub)
+	}
+
+	// Tampered or forged state: refused before the service.
+	fp.gotFields = nil
+	signed["d"] = "2026-11-01"
+	tampered, _ := json.Marshal(signed)
+	for name, st := range map[string]string{"tampered": string(tampered), "not json": "{", "unsigned": `{"k":"eod","u":"` + user + `"}`} {
+		b, _ := json.Marshal(map[string]any{"state": st, "did": "x"})
+		if rec, _ := apiCall(routes, "POST", "/api/v1/eod?team="+teamA, testSecret, user, string(b)); rec.Code != 400 || fp.gotFields != nil {
+			t.Errorf("%s: %d", name, rec.Code)
+		}
+	}
+	signed = mattermost.NewSigner("test-key", time.Hour).Sign(map[string]string{"k": "eod", "u": user, "t": teamA, "d": "2026-11-27"})
+	state, _ = json.Marshal(signed)
+	b, _ := json.Marshal(map[string]any{"state": string(state), "choices": map[string]string{"did": "x"}})
+	if rec, _ := apiCall(routes, "POST", "/api/v1/eod?team="+teamA, testSecret, user, string(b)); rec.Code != 400 {
+		t.Errorf("choice key that isn't sN: %d", rec.Code)
+	}
+
+	// Validation errors come back per field.
+	fp.submitRes = attendance.DialogResult{Errors: map[string]string{"did": "Write at least 10 characters."}}
+	b, _ = json.Marshal(map[string]any{"state": string(state), "did": "short"})
+	rec, out = apiCall(routes, "POST", "/api/v1/eod?team="+teamA, testSecret, user, string(b))
+	if rec.Code != http.StatusUnprocessableEntity || out["errors"].(map[string]any)["did"] == nil {
+		t.Errorf("validation: %d %v", rec.Code, out)
 	}
 }

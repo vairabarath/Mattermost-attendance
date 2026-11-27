@@ -194,6 +194,28 @@ func (s *Service) openEODForm(ctx context.Context, userID, teamID, day, triggerI
 	if triggerID == "" || s.Posts == nil {
 		return errors.New("no trigger id")
 	}
+	f, err := s.eodFormData(ctx, userID, teamID, day, githubDialogBudget)
+	if err != nil {
+		return err
+	}
+	d := s.eodDialog(userID, teamID, day, f.selects, f.done, f.others, f.omitted, f.note, f.prev)
+	return s.Posts.OpenDialog(ctx, triggerID, s.DialogURL, d)
+}
+
+// eodForm is what the end-of-day form shows: tasks with a status row
+// (selects), tasks closed that day (done), the member's other open tasks
+// (others), a note about missing tasks, and the report already saved for
+// the day (prev). Shared by the dialog and the panel.
+type eodForm struct {
+	selects, done, others []Task
+	omitted               int
+	note                  string
+	prev                  *EODReport
+}
+
+// eodFormData gathers the form's content; GitHub gets githubBudget (the
+// dialog must open within Mattermost's ~3 s trigger window).
+func (s *Service) eodFormData(ctx context.Context, userID, teamID, day string, githubBudget time.Duration) (eodForm, error) {
 	var (
 		selects, done, others []Task
 		omitted               int
@@ -201,7 +223,7 @@ func (s *Service) openEODForm(ctx context.Context, userID, teamID, day, triggerI
 	)
 	ms, err := s.Store.GetMember(ctx, userID)
 	if err != nil {
-		return err
+		return eodForm{}, err
 	}
 	switch {
 	case ms == nil || ms.GitHubLogin == "":
@@ -209,7 +231,7 @@ func (s *Service) openEODForm(ctx context.Context, userID, teamID, day, triggerI
 			note = "_Your GitHub account isn't linked, so tasks aren't listed. Ask an admin to link it._"
 		}
 	case s.Tasks != nil && s.Tasks.Configured(teamID):
-		gctx, cancel := context.WithTimeout(ctx, githubDialogBudget)
+		gctx, cancel := context.WithTimeout(ctx, githubBudget)
 		open, closed, err := s.Tasks.EODTasks(gctx, teamID, ms.GitHubLogin, s.dayStart(day))
 		cancel()
 		if err != nil {
@@ -224,10 +246,9 @@ func (s *Service) openEODForm(ctx context.Context, userID, teamID, day, triggerI
 
 	prev, err := s.Store.GetEODReport(ctx, userID, teamID, day)
 	if err != nil {
-		return err
+		return eodForm{}, err
 	}
-	d := s.eodDialog(userID, teamID, day, selects, done, others, omitted, note, prev)
-	return s.Posts.OpenDialog(ctx, triggerID, s.DialogURL, d)
+	return eodForm{selects: selects, done: done, others: others, omitted: omitted, note: note, prev: prev}, nil
 }
 
 // otherTasks are the member's open tasks without a dropdown, offered in
@@ -337,20 +358,26 @@ func (s *Service) eodDialog(userID, teamID, day string, selects, done, others []
 			MaxLength: maxEODText, Default: tomorrow},
 	)
 
-	items, _ := json.Marshal(toFormIssues(selects))
-	doneJSON, _ := json.Marshal(toFormIssues(done))
-	othersJSON, _ := json.Marshal(toFormIssues(others))
 	return mattermost.Dialog{
 		CallbackID:       dlgEOD,
 		Title:            "End of day report",
 		IntroductionText: strings.Join(intro, "\n"),
 		SubmitLabel:      "Submit",
-		State: s.signedState(map[string]string{
-			"k": dlgEOD, "u": userID, "t": teamID, "d": day,
-			"items": string(items), "done": string(doneJSON), "others": string(othersJSON),
-		}),
-		Elements: elements,
+		State:            s.eodState(userID, teamID, day, eodForm{selects: selects, done: done, others: others}),
+		Elements:         elements,
 	}
+}
+
+// eodState is the signed form state (shared by the dialog and the panel):
+// who, which team and day, and the task lists the submission refers to.
+func (s *Service) eodState(userID, teamID, day string, f eodForm) string {
+	items, _ := json.Marshal(toFormIssues(f.selects))
+	doneJSON, _ := json.Marshal(toFormIssues(f.done))
+	othersJSON, _ := json.Marshal(toFormIssues(f.others))
+	return s.signedState(map[string]string{
+		"k": dlgEOD, "u": userID, "t": teamID, "d": day,
+		"items": string(items), "done": string(doneJSON), "others": string(othersJSON),
+	})
 }
 
 // multiValues reads a multi-select submission: a list of strings (what
@@ -486,6 +513,7 @@ func (s *Service) submitEOD(ctx context.Context, d DialogSubmit) (DialogResult, 
 		confirm += " Task updates are being written to GitHub."
 		s.enqueueEODSync(r.ID)
 	}
+	s.notify(d.UserID, EventEOD, teamID)
 	if s.Posts != nil && d.ChannelID != "" {
 		if err := s.Posts.EphemeralPost(ctx, d.UserID, d.ChannelID, confirm); err != nil {
 			s.Log.Warn("eod: confirmation failed", "user_id", d.UserID, "err", err)

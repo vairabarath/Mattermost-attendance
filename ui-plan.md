@@ -16,7 +16,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **1** | Bot JSON API + plugin bridge (no UI yet) | ✅ live-tested | 27 Nov · bot `8a99918`, plugin 0.2.0 |
 | **2** | Member panel: status, live timer, check in / break / check out | ✅ live-tested | 27 Nov · plugin 0.3.1 |
 | **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ✅ live-tested | 27 Nov · bot `c63a3e4`, plugin 0.4.0 |
-| **4** | End-of-day report form in the panel | ⬜ | — |
+| **4** | End-of-day report form in the panel | 🟦 built and tested — waiting for your OK to deploy | — |
 | **5** | Live updates (panel refreshes itself) | ⬜ | — |
 | **6** | Hours and WFH in the panel | ⬜ | — |
 | **7** | Admin tab: team today, reports, task check | ⬜ | — |
@@ -242,11 +242,17 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Deploy: bot `c63a3e4`, plugin 0.4.0; uploads back to `false`
 - [x] Live test (barath, Bittrix): panel lists #7 (Blocked, ⚠️ overdue, ✓ Today) and the new test issue #8 (Todo, Pick) ✅ · Pick on #8 → "now In progress", chip → In progress, ✓ Today ✅ · GitHub board #8 = In progress ✅ · `/att tasks` in chat shows the same list ✅
 
-### Phase 4 — End-of-day form ⬜
-- [ ] Bot: `GET /eod`, `POST /eod` (shared validation with the dialog)
-- [ ] Form: status chips per task, already done, other tasks, text fields, edit existing report
-- [ ] Sync status line (synced / syncing / failed) with live refresh
-- [ ] Tests + live test (submit, edit, window closed after 11:00)
+### Phase 4 — End-of-day form 🟦
+- [x] Bot: the dialog's form-building code split out (`eodFormData`, `eodState`) and shared — the panel shows exactly the dialog's rows; existing EOD tests unchanged and passing
+- [x] Bot: `GET /api/v1/eod` (form for today / yesterday before 11:00; "nothing to report" and "closed" states; pre-filled from a saved report; sync line) and `POST /api/v1/eod` (verifies the **signed form state** like the dialog handler, then runs the dialog's `submitEOD`: same validation, saving, thread post, GitHub sync, blocker alerts)
+- [x] Bot: `eod_changed` live event after a submission and after each GitHub sync
+- [x] Panel: end-of-day card (Not sent yet → Write report / Sent · time · GitHub sync → Edit report / "Opens when you check out")
+- [x] Panel: form view — full task titles (GitHub links), status buttons per task (No change / In progress / In review / Blocked / Done, coloured, keyboard and screen-reader friendly), already done today, other tasks as checkboxes, 3 text fields with counters, too-short check before sending, the bot's field errors next to each field, sticky Send / Update bar
+- [x] Checking out in the panel opens the form (like the dialog after `/att out`); the form never reloads under you while open
+- [x] Tests: bot (form = dialog rows, pre-fill, submit saves + posts + notifies, validation, other user's / team's form refused, signed state required, tampered state refused, unavailable / closed days); panel (21 tests: form parts, choices, sending, field errors, card states, check-out opens the form)
+- [x] Plugin 0.5.0
+- [ ] Deploy (bot + plugin)
+- [ ] Live test (write, edit, sync status, check-out → form)
 
 ### Phase 5 — Live updates ⬜
 - [ ] Events wired: slash command, buttons, jobs (auto-close), EOD sync, board sweep → panel refreshes

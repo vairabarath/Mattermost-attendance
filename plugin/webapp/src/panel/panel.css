@@ -204,3 +204,61 @@
     animation: att-fade 0.2s ease-out;
 }
 @keyframes att-fade { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+
+/* End-of-day card */
+.att-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.att-row .att-h { margin: 0; }
+.att-eod-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; }
+.att-small { font-size: 12px; }
+
+/* End-of-day form */
+.att-eod { display: flex; flex-direction: column; gap: 16px; }
+.att-eod-head { display: flex; flex-direction: column; gap: 4px; }
+.att-eod-head .att-h { font-size: 16px; }
+.att-fieldset { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.att-fieldset legend { padding: 0; margin-bottom: 4px; }
+.att-eod-task {
+    padding: 10px 12px;
+    border: 1px solid rgba(var(--center-channel-color-rgb), 0.12);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.att-seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.att-seg-btn {
+    border: 1px solid rgba(var(--center-channel-color-rgb), 0.16);
+    background: var(--center-channel-bg);
+    color: rgba(var(--center-channel-color-rgb), 0.8);
+    border-radius: 14px;
+    padding: 2px 10px;
+    font-size: 12px;
+    line-height: 20px;
+    cursor: pointer;
+}
+.att-seg-btn:hover { background: rgba(var(--center-channel-color-rgb), 0.06); }
+.att-seg-btn:focus-visible { outline: 2px solid var(--button-bg); outline-offset: 1px; }
+.att-seg-btn.is-on { font-weight: 600; color: var(--center-channel-color); background: rgba(var(--center-channel-color-rgb), 0.12); border-color: rgba(var(--center-channel-color-rgb), 0.32); }
+.att-seg-btn--progress.is-on { background: rgba(var(--online-indicator-rgb, 6, 214, 160), 0.2); border-color: var(--online-indicator); }
+.att-seg-btn--review.is-on { background: rgba(var(--button-bg-rgb), 0.14); border-color: var(--button-bg); color: var(--button-bg); }
+.att-seg-btn--blocked.is-on { background: rgba(var(--error-text-color-rgb, 210, 75, 78), 0.14); border-color: var(--error-text); color: var(--error-text); }
+.att-seg-btn--done.is-on { background: var(--online-indicator); border-color: var(--online-indicator); color: #fff; }
+.att-plain-list { list-style: none; margin: 0; padding: 0; font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.att-check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; padding: 4px 0; cursor: pointer; }
+.att-check input { margin-top: 3px; }
+.att-field { display: flex; flex-direction: column; gap: 4px; }
+.att-label { display: flex; align-items: baseline; gap: 2px; font-weight: 600; font-size: 13px; }
+.att-required { color: var(--error-text); }
+.att-counter { margin-left: auto; font-weight: 400; font-size: 11px; color: rgba(var(--center-channel-color-rgb), 0.48); }
+.att-counter--over { color: var(--error-text); }
+.att-field-error { color: var(--error-text); font-size: 12px; }
+.att-eod-foot {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 0 4px;
+    background: var(--center-channel-bg);
+    border-top: 1px solid rgba(var(--center-channel-color-rgb), 0.08);
+}

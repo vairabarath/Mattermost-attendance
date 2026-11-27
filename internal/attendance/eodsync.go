@@ -307,6 +307,7 @@ func (s *Service) finishSync(ctx context.Context, log interface {
 		return
 	}
 	log.Info("eod sync done", "status", status)
+	s.notify(r.UserID, EventEOD, r.TeamID)
 	if status == "failed" && r.SyncAttempts >= maxSyncAttempts {
 		s.alertSyncGaveUp(ctx, r, syncErr)
 	}

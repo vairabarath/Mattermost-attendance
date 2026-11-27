@@ -27,7 +27,11 @@ export async function doFetch<T>(path: string, options: Options = {}): Promise<T
     );
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-        throw new Error(body?.error ?? `Request failed with status ${response.status}`);
+        // Field errors (e.g. the end-of-day form) come as {errors: {field: msg}}.
+        const fieldErrors = body?.errors && Object.values(body.errors as Record<string, string>);
+        const err = new Error(body?.error || fieldErrors?.[0] || `Request failed with status ${response.status}`) as Error & {body?: unknown};
+        err.body = body;
+        throw err;
     }
     return body as T;
 }

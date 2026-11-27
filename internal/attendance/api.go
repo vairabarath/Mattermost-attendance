@@ -17,6 +17,7 @@ var ErrNotTeamMember = errors.New("not a member of this team")
 const (
 	EventSession = "session_changed"
 	EventTasks   = "tasks_changed"
+	EventEOD     = "eod_changed"
 )
 
 // TeamRef names a team.

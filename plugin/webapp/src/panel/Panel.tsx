@@ -12,6 +12,7 @@ import type {GlobalState} from '@mattermost/types/store';
 
 import {getCurrentTeamId} from 'mattermost-redux/selectors/entities/teams';
 
+import EODSection from './EODSection';
 import Markdown from './Markdown';
 import {REFRESH_EVENT} from './refresh';
 import Tasks from './Tasks';
@@ -47,6 +48,7 @@ export default function Panel() {
     const [confirmOut, setConfirmOut] = useState(false);
     const [showNote, setShowNote] = useState(false);
     const [note, setNote] = useState('');
+    const [eodOpen, setEodOpen] = useState(false);
 
     const show = (m: Me) => {
         setMe(m);
@@ -72,6 +74,7 @@ export default function Panel() {
         setLoading(true);
         setMessage('');
         setConfirmOut(false);
+        setEodOpen(false);
         load();
     }, [load]);
 
@@ -108,6 +111,9 @@ export default function Panel() {
             setMessage(r.message);
             setNote('');
             setShowNote(false);
+            if (action === 'out') {
+                setEodOpen(true); // like the dialog after /att out
+            }
         } catch (e) {
             setMessage('');
             setError((e as Error).message);
@@ -151,129 +157,139 @@ export default function Panel() {
     return (
         <div className='att-panel'>
             <div className='att-team'>{me.team.name}</div>
+            {!eodOpen && (<>
 
-            <section
-                className={`att-card att-card--${state}`}
-                aria-label='Attendance status'
-            >
-                {!session && (
-                    <>
-                        <div className='att-status'>
-                            <span className='att-dot att-dot--off'/>
-                            {'Not checked in'}
-                        </div>
-                        {showNote ? (
-                            <textarea
-                                className='att-input'
-                                placeholder='Note (optional), e.g. “standup at 10”'
-                                maxLength={500}
-                                value={note}
-                                onChange={(e) => setNote(e.target.value)}
-                                aria-label='Check-in note'
-                            />
-                        ) : (
-                            <button
-                                className='att-link'
-                                onClick={() => setShowNote(true)}
-                            >{'+ Add a note'}</button>
-                        )}
-                        <button
-                            className='att-btn att-btn--primary att-btn--wide'
-                            disabled={Boolean(busy)}
-                            onClick={() => run('in', note)}
-                        >{busy === 'in' ? 'Checking in…' : '▶ Check in'}</button>
-                    </>
-                )}
-
-                {session && (
-                    <>
-                        <div className='att-status'>
-                            <span className={`att-dot att-dot--${state}`}/>
-                            {session.on_break ? 'On break' : 'Working'}
-                            {elsewhere && <span className='att-muted'>{` · in ${session.team.name}`}</span>}
-                        </div>
-                        <div
-                            className='att-timer'
-                            aria-label='Time worked this session'
-                        >{clock(workSeconds)}</div>
-                        <div className='att-muted'>
-                            {`since ${timeOfDay(session.check_in)} · ${modeLabel}`}
-                            {session.on_break && ` · break ${hm(breakSeconds)}`}
-                        </div>
-                        <div className='att-actions'>
-                            {session.on_break ? (
-                                <button
-                                    className='att-btn att-btn--primary'
-                                    disabled={Boolean(busy)}
-                                    onClick={() => run('back')}
-                                >{busy === 'back' ? '…' : '▶ Back'}</button>
+                <section
+                    className={`att-card att-card--${state}`}
+                    aria-label='Attendance status'
+                >
+                    {!session && (
+                        <>
+                            <div className='att-status'>
+                                <span className='att-dot att-dot--off'/>
+                                {'Not checked in'}
+                            </div>
+                            {showNote ? (
+                                <textarea
+                                    className='att-input'
+                                    placeholder='Note (optional), e.g. “standup at 10”'
+                                    maxLength={500}
+                                    value={note}
+                                    onChange={(e) => setNote(e.target.value)}
+                                    aria-label='Check-in note'
+                                />
                             ) : (
                                 <button
-                                    className='att-btn'
-                                    disabled={Boolean(busy)}
-                                    onClick={() => run('break')}
-                                >{busy === 'break' ? '…' : '☕ Break'}</button>
+                                    className='att-link'
+                                    onClick={() => setShowNote(true)}
+                                >{'+ Add a note'}</button>
                             )}
-                            {confirmOut ? (
-                                <span className='att-confirm'>
+                            <button
+                                className='att-btn att-btn--primary att-btn--wide'
+                                disabled={Boolean(busy)}
+                                onClick={() => run('in', note)}
+                            >{busy === 'in' ? 'Checking in…' : '▶ Check in'}</button>
+                        </>
+                    )}
+
+                    {session && (
+                        <>
+                            <div className='att-status'>
+                                <span className={`att-dot att-dot--${state}`}/>
+                                {session.on_break ? 'On break' : 'Working'}
+                                {elsewhere && <span className='att-muted'>{` · in ${session.team.name}`}</span>}
+                            </div>
+                            <div
+                                className='att-timer'
+                                aria-label='Time worked this session'
+                            >{clock(workSeconds)}</div>
+                            <div className='att-muted'>
+                                {`since ${timeOfDay(session.check_in)} · ${modeLabel}`}
+                                {session.on_break && ` · break ${hm(breakSeconds)}`}
+                            </div>
+                            <div className='att-actions'>
+                                {session.on_break ? (
+                                    <button
+                                        className='att-btn att-btn--primary'
+                                        disabled={Boolean(busy)}
+                                        onClick={() => run('back')}
+                                    >{busy === 'back' ? '…' : '▶ Back'}</button>
+                                ) : (
+                                    <button
+                                        className='att-btn'
+                                        disabled={Boolean(busy)}
+                                        onClick={() => run('break')}
+                                    >{busy === 'break' ? '…' : '☕ Break'}</button>
+                                )}
+                                {confirmOut ? (
+                                    <span className='att-confirm'>
+                                        <button
+                                            className='att-btn att-btn--danger'
+                                            disabled={Boolean(busy)}
+                                            onClick={() => run('out')}
+                                        >{busy === 'out' ? 'Checking out…' : 'Yes, check out'}</button>
+                                        <button
+                                            className='att-link'
+                                            onClick={() => setConfirmOut(false)}
+                                        >{'Cancel'}</button>
+                                    </span>
+                                ) : (
                                     <button
                                         className='att-btn att-btn--danger'
                                         disabled={Boolean(busy)}
-                                        onClick={() => run('out')}
-                                    >{busy === 'out' ? 'Checking out…' : 'Yes, check out'}</button>
-                                    <button
-                                        className='att-link'
-                                        onClick={() => setConfirmOut(false)}
-                                    >{'Cancel'}</button>
-                                </span>
-                            ) : (
-                                <button
-                                    className='att-btn att-btn--danger'
-                                    disabled={Boolean(busy)}
-                                    onClick={() => setConfirmOut(true)}
-                                >{'🔴 Check out'}</button>
-                            )}
-                        </div>
-                    </>
-                )}
-                <div
-                    className='att-card-foot'
-                    aria-label='Today'
-                >
-                    <span>
-                        <span className='att-muted'>{'Today '}</span>
-                        <strong>{hm(todaySeconds)}</strong>
-                    </span>
-                    {allSeconds !== todaySeconds && (
-                        <span>
-                            <span className='att-muted'>{'All orgs '}</span>
-                            <strong>{hm(allSeconds)}</strong>
-                        </span>
+                                        onClick={() => setConfirmOut(true)}
+                                    >{'🔴 Check out'}</button>
+                                )}
+                            </div>
+                        </>
                     )}
-                </div>
-            </section>
+                    <div
+                        className='att-card-foot'
+                        aria-label='Today'
+                    >
+                        <span>
+                            <span className='att-muted'>{'Today '}</span>
+                            <strong>{hm(todaySeconds)}</strong>
+                        </span>
+                        {allSeconds !== todaySeconds && (
+                            <span>
+                                <span className='att-muted'>{'All orgs '}</span>
+                                <strong>{hm(allSeconds)}</strong>
+                            </span>
+                        )}
+                    </div>
+                </section>
 
-            {error && (
-                <div
-                    className='att-error'
-                    role='alert'
-                >{error}</div>
-            )}
-            {message && (
-                <div
-                    className='att-message'
-                    role='status'
-                >
-                    <button
-                        className='att-close'
-                        aria-label='Dismiss'
-                        onClick={() => setMessage('')}
-                    >{'×'}</button>
-                    <Markdown text={message}/>
-                </div>
-            )}
+                {error && (
+                    <div
+                        className='att-error'
+                        role='alert'
+                    >{error}</div>
+                )}
+                {message && (
+                    <div
+                        className='att-message'
+                        role='status'
+                    >
+                        <button
+                            className='att-close'
+                            aria-label='Dismiss'
+                            onClick={() => setMessage('')}
+                        >{'×'}</button>
+                        <Markdown text={message}/>
+                    </div>
+                )}
 
-            <Tasks teamId={me.team.id}/>
+            </>)}
+
+            <EODSection
+                teamId={me.team.id}
+                open={eodOpen}
+                onOpen={() => setEodOpen(true)}
+                onClose={() => setEodOpen(false)}
+            />
+
+            {!eodOpen && <Tasks teamId={me.team.id}/>}
         </div>
     );
 }

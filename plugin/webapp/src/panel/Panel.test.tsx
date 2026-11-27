@@ -46,6 +46,25 @@ function renderPanel(teamId = TEAM) {
 
 afterEach(() => jest.useRealTimers());
 
+const eodForm = (): api.EODForm => ({
+    available: true,
+    team: {id: TEAM, name: 'Bittrix Technologies'},
+    day: '2026-11-27',
+    day_label: 'Fri 27 Nov',
+    statuses: ['In progress', 'In review', 'Blocked', 'Done'],
+    no_change: 'No change',
+    tasks: [],
+    done: [],
+    others: [],
+    did: '',
+    blockers: '',
+    tomorrow: '',
+    min_did: 10,
+    max_text: 2000,
+    submitted: false,
+    state: '{}',
+});
+
 test('not checked in: check in with a note', async () => {
     mocked.fetchMe.mockResolvedValue(me());
     mocked.act.mockResolvedValue({message: '✅ Checked in to **Bittrix Technologies** at 9:00 AM', me: me({session: working({net_seconds: 0})})});
@@ -90,9 +109,15 @@ test('working: live timer, break, and check out needs a confirmation', async () 
     expect(screen.getByText('🔴 Check out')).toBeInTheDocument();
 
     mocked.act.mockResolvedValue({message: '🔴 Checked out', me: me({today_team_seconds: 3725})});
+    mocked.fetchEOD.mockResolvedValue(eodForm());
     await userEvent.click(screen.getByText('🔴 Check out'));
     await userEvent.click(screen.getByText('Yes, check out'));
     expect(mocked.act).toHaveBeenLastCalledWith(TEAM, 'out', '');
+
+    // Like the dialog after /att out: the end-of-day form opens.
+    expect(await screen.findByRole('form', {name: 'End-of-day report'})).toBeInTheDocument();
+    expect(screen.queryByLabelText('Attendance status')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText('← Back'));
     expect(await screen.findByText('Not checked in')).toBeInTheDocument();
 });
 

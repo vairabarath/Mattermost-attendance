@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -20,6 +21,8 @@ type PanelAPI interface {
 	Act(ctx context.Context, userID, teamID, action, text string) (string, error)
 	PanelTasks(ctx context.Context, userID, teamID string) (attendance.TasksState, error)
 	PanelPick(ctx context.Context, userID, teamID, issueURL string) (string, error)
+	PanelEOD(ctx context.Context, userID, teamID, day string) (attendance.EODFormState, error)
+	PanelSubmitEOD(ctx context.Context, userID, teamID string, fields map[string]string, submission map[string]any) (attendance.DialogResult, error)
 }
 
 // apiRoutes registers /api/v1/* when the plugin secret is set. Only the
@@ -34,7 +37,11 @@ func (h *Handler) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/session/{action}", h.api(h.apiSession))
 	mux.HandleFunc("GET /api/v1/tasks", h.api(h.apiTasks))
 	mux.HandleFunc("POST /api/v1/tasks/pick", h.api(h.apiPick))
+	mux.HandleFunc("GET /api/v1/eod", h.api(h.apiEOD))
+	mux.HandleFunc("POST /api/v1/eod", h.api(h.apiSubmitEOD))
 }
+
+var dayRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
 type apiRequest struct {
 	userID, teamID string
@@ -59,7 +66,7 @@ func (h *Handler) api(fn func(http.ResponseWriter, *http.Request, apiRequest)) h
 			apiError(w, http.StatusBadRequest, "Attendance isn't used in this team.")
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		r.Body = http.MaxBytesReader(w, r.Body, 48<<10) // the EOD form: 3 × 2000 chars + its state
 		fn(w, r, apiRequest{userID: userID, teamID: teamID})
 	}
 }
@@ -140,6 +147,83 @@ func (h *Handler) apiPick(w http.ResponseWriter, r *http.Request, a apiRequest) 
 	}
 	h.Log.Info("api ok", "user_id", a.userID, "team_id", a.teamID, "action", "pick")
 	apiJSON(w, http.StatusOK, map[string]any{"message": msg, "tasks": st})
+}
+
+func (h *Handler) apiEOD(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	day := r.URL.Query().Get("day")
+	if day != "" && !dayRe.MatchString(day) {
+		apiError(w, http.StatusBadRequest, "Bad day.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	st, err := h.Panel.PanelEOD(ctx, a.userID, a.teamID, day)
+	if h.apiFailed(w, err, "eod", a) {
+		return
+	}
+	apiJSON(w, http.StatusOK, st)
+}
+
+// eodSubmission is the panel's form: the signed state it was given, and the
+// member's answers. Choices are keyed s0, s1, ... like the dialog's fields;
+// Others are indexes into the state's "others" list.
+type eodSubmission struct {
+	State    string            `json:"state"`
+	Choices  map[string]string `json:"choices"`
+	Others   []string          `json:"others"`
+	Did      string            `json:"did"`
+	Blockers string            `json:"blockers"`
+	Tomorrow string            `json:"tomorrow"`
+}
+
+func (h *Handler) apiSubmitEOD(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	var body eodSubmission
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apiError(w, http.StatusBadRequest, "Bad request.")
+		return
+	}
+	// The task lists come only from the signed state, as in the dialog.
+	var state map[string]string
+	if err := json.Unmarshal([]byte(body.State), &state); err != nil {
+		apiError(w, http.StatusBadRequest, "This form has expired. Please reopen it.")
+		return
+	}
+	fields, err := h.Verifier.Verify(state)
+	if err != nil {
+		h.Log.Warn("api eod rejected: bad signature", "user_id", a.userID)
+		apiError(w, http.StatusBadRequest, "This form has expired. Please reopen it.")
+		return
+	}
+	sub := map[string]any{"did": body.Did, "blockers": body.Blockers, "tomorrow": body.Tomorrow}
+	for k, v := range body.Choices {
+		if len(k) < 2 || len(k) > 4 || k[0] != 's' {
+			apiError(w, http.StatusBadRequest, "Bad request.")
+			return
+		}
+		sub[k] = v
+	}
+	others := make([]any, 0, len(body.Others))
+	for _, o := range body.Others {
+		others = append(others, o)
+	}
+	sub["others"] = others
+
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	res, err := h.Panel.PanelSubmitEOD(ctx, a.userID, a.teamID, fields, sub)
+	if h.apiFailed(w, err, "eod_submit", a) {
+		return
+	}
+	if res.Error != "" || len(res.Errors) > 0 {
+		apiJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": res.Error, "errors": res.Errors})
+		return
+	}
+	st, err := h.Panel.PanelEOD(ctx, a.userID, a.teamID, fields["d"])
+	if h.apiFailed(w, err, "eod", a) {
+		return
+	}
+	h.Log.Info("api ok", "user_id", a.userID, "team_id", a.teamID, "action", "eod_submit")
+	apiJSON(w, http.StatusOK, map[string]any{"eod": st})
 }
 
 // apiFailed writes the error reply for err (if any) and reports whether it did.
