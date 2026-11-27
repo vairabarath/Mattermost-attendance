@@ -135,11 +135,45 @@ Each team can be linked to a GitHub organization and an organization **Project (
 | Due date | date | |
 | Estimate | number | hours (optional field) |
 
-The bot looks fields and options up **by name** (never hard-coded ids), caches them for 6 hours, and logs a clear error if one is missing. Enable the Project's built-in workflows **Item closed → Status: Done** (and **Pull request merged → Done** for repos that use PRs). Put non-code work in an `operations` repo so every task is an issue.
+The bot looks fields and options up **by name** (never hard-coded ids), caches them for 6 hours, and logs a clear error if one is missing. Renaming or recreating an option gives it a new id: the bot copes, but GitHub's own workflows that set that option must be pointed at it again.
 
-Also turn on **Auto-add to project** (repo `operations`, filter `is:issue is:open`) so new issues land on the board — the bot only lists issues that are on the team's Project. The free plan allows one auto-add workflow per Project; issues in other repos are added by hand (or by the bot when a member reports on them).
+### Project workflows (Project → ⋯ → Workflows)
 
-Repo conventions: one branch per issue named `<number>-description` (e.g. `42-session-timeout`); the final commit on the default branch says `Closes #42`.
+| Workflow | Setting | Why |
+|---|---|---|
+| **Item added to project** | Status: **Todo** | new tasks start in Todo |
+| **Item closed** | Status: **Done** | a `Closes #42` commit or a closed issue finishes the task |
+| **Pull request merged** | Status: **Done** | for repos that use pull requests |
+| **Auto-add to project** | repo `operations`, filter `is:issue is:open` | the bot only lists issues that are **on the Project**; this puts new issues there |
+
+The free plan allows one auto-add workflow per Project: issues in other repos are added by hand (Project → *Add item*), or by the bot when a member reports on them. Put non-code work (admin, finance, hiring, client) in an `operations` repo so every task is an issue.
+
+Repo conventions: one branch per issue named `<number>-description` (e.g. `42-session-timeout`) — the EOD activity line and the stale check read these; the final commit on the default branch says `Closes #42`. Commits count only when the commit email is linked to the member's GitHub account.
+
+### Adding GitHub for another team
+
+The App is installable on any account, so other organizations reuse it:
+
+1. Create the GitHub organization (owner: an admin), invite the team's members, and move or create its repos there (including an `operations` repo).
+2. Create an organization **Project**, with the fields and workflows above.
+3. **Install the App** on the new org: App page → *Install App* → the org → *All repositories*.
+4. Add `TEAM_<KEY>_GITHUB_ORG` and `TEAM_<KEY>_GITHUB_PROJECT` to `.env`, then `docker compose up -d --build attendance`. Check the log for `github project ok` for that team.
+5. Link each member: `/att member @user github <username>` (the bot checks they're in that org). Note: a member already linked by another team's admin is used as-is in this team too — see *Known limitations*.
+6. Test: a member runs `/att tasks` and sees an issue assigned to them.
+
+### Mattermost GitHub plugin vs this bot
+
+They do different jobs and can run side by side:
+
+| | Mattermost GitHub plugin | This bot |
+|---|---|---|
+| Who it acts as | each person's own GitHub account (OAuth) | one GitHub App for the organization |
+| Notifications | PR reviews, mentions, assignments, CI — per person, in DMs and channel subscriptions | none |
+| Daily work | sidebar counts, `/github todo`, creating issues from posts | the task list at check-in, picking today's task, the end-of-day report and its sync to the Project |
+| Project (v2) board | not used | reads and updates Status, Priority, Due date |
+| Reports and alerts | none | EOD thread, blocker alerts, 10:00 task check, task columns in the daily and weekly reports |
+
+Use the plugin for notifications and code review; use the bot for attendance, tasks and reports. Neither needs the other.
 
 ## Start of day
 
@@ -226,7 +260,11 @@ go test ./...                      # unit tests; integration tests are skipped
 
 **GitHub Actions** (`.github/workflows/test.yml`) runs on every push and pull request: gofmt, `go vet`, all tests with the race detector against a Postgres service, and `govulncheck`.
 
-Unit tests cover the hours calculation, week/month ranges, custom status save/restore, button signing, config loading, slash-token verification, the admin check, auto-close math, job idempotency, reminders, workdays/holidays, the daily summary rules, team/user reports, expected hours with holidays, `/att fix` parsing, CSV export (incl. formula escaping) and the weekly report. The `/att fix` database transaction is covered by integration tests in phase 6. Integration tests against a real Postgres come in phase 6.
+Unit tests cover the hours calculation, week/month ranges, custom status save/restore, button signing, config loading, slash-token verification, the admin check, auto-close math, job idempotency, reminders, workdays/holidays, the daily summary rules, team/user reports, expected hours with holidays, `/att fix` parsing, CSV export (incl. formula escaping) and the weekly report — and for tasks and EOD: the GitHub client against a fake GitHub (App auth, token caching, field discovery by name, search paging, rate limits, every write in order, assignment checks), the EOD form and its limits, picks, sync retries and blocker alerts, the admin views and the 19:30/10:00 jobs.
+
+Integration tests cover the database rules: one open session across teams, breaks, midnight splits, `/att fix`, auto-close, concurrent WFH decisions, job idempotency, member settings, GitHub login uniqueness, EOD resubmits, exactly one EOD thread root and one reply under concurrent submits, the sync lease (incl. taking over an expired one), task picks, EOD statuses, and re-running migrations.
+
+**Manual test script:** [`docs/manual-test.md`](docs/manual-test.md) — a step-by-step check in Mattermost after a deploy.
 
 ## Backups
 
@@ -260,7 +298,10 @@ Reviewed at the end of phase 6:
 - **SQL:** all values are bound parameters; the only concatenation is of constant column lists.
 - **Logs:** JSON; only ids, team/job names, timings and errors — never tokens, notes, reasons or message text, and never request bodies.
 - **Secrets** only in `.env` (mode 600, git-ignored, not in git history). The image is distroless and runs as `nonroot`. Request bodies are capped at 64 KB, with server timeouts.
-- **GitHub App key:** mounted read-only from `secrets/` (git-ignored), mode 400, owned by the container user; never logged. Installation tokens are cached in memory only. GitHub calls have timeouts, retries on 5xx and stop on rate limits.
+- **GitHub App key:** mounted read-only from `secrets/` (git-ignored), mode 400, owned by the container user; never logged. The bot **refuses** a key file that group or others can read (GitHub features stay off, with the reason in the log). Installation tokens are cached in memory only.
+- **GitHub writes** happen only on issues **assigned to the member**, in the team's org, checked on GitHub right before each write (EOD statuses and picks). A pick must also be on the team's Project. Values from forms and select menus are never trusted: issue lists come from the signed form state, a picked issue is re-checked.
+- **GitHub calls** have timeouts, retries with backoff on 5xx (never for comments and other writes that can't be repeated), and after a rate limit the org's calls pause until GitHub's reset time (at most an hour). GitHub problems never block check-in, check-out or saving a report.
+- **EOD reports:** a signed form or button still works for 48 h, but a report can only be sent or changed the same day or until 11:00 the next morning — checked when it's used. Each sync claims a 5-minute lease and finishes within 4 minutes; a report resubmitted during a sync is synced again, never marked synced by the older run. Issue titles and member text can't notify a whole channel (`@channel`, `@all`, `@here` are neutralised).
 - **Dependencies:** pgx and robfig/cron only (the GitHub client is hand-written on the standard library); `govulncheck` reports no known vulnerabilities (also run in CI).
 - **CSV export** escapes values starting with `= + - @` so spreadsheets don't run them.
 
@@ -269,4 +310,5 @@ Reviewed at the end of phase 6:
 - The system can't verify a member's physical location; WFH/office mode reflects approvals, not location.
 - Leave isn't tracked yet: there is only a hook, so people on leave still get reminders and show as "not checked in".
 - Anything that can reach the bot on the Docker network could send it a slash command with a stolen token, or replay a signed button within its lifetime (the user id in click payloads is trusted). Only Mattermost, its Postgres and the bot are on `mattermost_default` today — keep it that way and never publish port 8080.
+- **One GitHub login per member, for all teams.** An admin of one team links it after checking membership of *that* team's org; other teams' orgs trust the same link. With one GitHub org (today) this changes nothing. Before connecting a second org, decide whether links should be per team (see *Adding GitHub for another team*).
 - Mattermost doesn't sign requests to `/mm/*`. Slash commands are verified by per-team token; the service must stay reachable **only** on the internal Docker network — never publish its port.

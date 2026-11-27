@@ -325,3 +325,18 @@ func TestHelpRendersInTables(t *testing.T) {
 		}
 	}
 }
+
+// Issue titles can't notify a whole channel through the bot's posts.
+func TestTitlesCantMentionChannel(t *testing.T) {
+	tk := task(5, StatusBlocked, 9)
+	tk.Title = "@channel deploy now | [x](y)"
+	r := EODReport{Day: "2026-11-26", DidToday: "Did it", Items: []EODItem{{IssueURL: tk.URL, Title: tk.Title, NewStatus: StatusBlocked}}}
+	for name, out := range map[string]string{
+		"eod post":  RenderEOD("Jana", time.Hour, map[string]bool{"office": true}, r),
+		"task list": RenderTaskList([]Task{tk}, "2026-11-26", ist),
+	} {
+		if strings.Contains(out, "@channel") || !strings.Contains(out, "@​channel") || strings.Contains(out, "| [x]") {
+			t.Errorf("%s: %q", name, out)
+		}
+	}
+}

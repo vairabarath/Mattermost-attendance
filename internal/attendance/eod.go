@@ -70,6 +70,7 @@ type EODReport struct {
 	// Phase 3 (GitHub sync).
 	SyncError     string
 	SyncAttempts  int
+	SyncVersion   int // bumped by every save; a sync only finishes its own version
 	Activity      *Activity
 	BlockerPostID string
 }
@@ -394,6 +395,9 @@ func (s *Service) submitEOD(ctx context.Context, d DialogSubmit) (DialogResult, 
 	if teamID == "" || !dayRe.MatchString(day) {
 		return DialogResult{Error: "This form is invalid. Please run `/att eod submit`."}, nil
 	}
+	if !s.eodDayOpen(day) {
+		return DialogResult{Error: s.eodClosedMsg(day)}, nil
+	}
 	str := func(k string) string { v, _ := d.Submission[k].(string); return strings.TrimSpace(v) }
 	did := str("did")
 	if len([]rune(did)) < minDidLen {
@@ -679,9 +683,32 @@ func (s *Service) eodClick(ctx context.Context, c Click) (Reply, error) {
 	if teamID == "" || !dayRe.MatchString(day) {
 		return Reply{Text: "This button is invalid. Run `/att eod submit`.", EphemeralOnly: true}, nil
 	}
+	if !s.eodDayOpen(day) {
+		return Reply{Text: s.eodClosedMsg(day), EphemeralOnly: true}, nil
+	}
 	if err := s.openEODForm(ctx, c.UserID, teamID, day, c.TriggerID); err != nil {
 		s.Log.Warn("eod: open form from button failed", "user_id", c.UserID, "err", err)
 		return Reply{Text: "Couldn't open the form. Run `/att eod submit`.", EphemeralOnly: true}, nil
 	}
 	return Reply{EphemeralOnly: true}, nil
+}
+
+// eodDayOpen reports whether a report for day can still be sent or changed:
+// today's, or yesterday's until eodLateUntil. Signed forms and buttons live
+// longer than that, so this is checked again on use.
+func (s *Service) eodDayOpen(day string) bool {
+	now := s.Now().In(s.Loc)
+	today, _ := DayBounds(now, s.Loc)
+	switch day {
+	case today.Format(DayFormat):
+		return true
+	case today.AddDate(0, 0, -1).Format(DayFormat):
+		return now.Hour() < eodLateUntil
+	}
+	return false
+}
+
+func (s *Service) eodClosedMsg(day string) string {
+	return fmt.Sprintf("The end-of-day report for %s is closed: reports can be sent the same day, or until %d:00 the next morning.",
+		s.dayStart(day).Format("Mon 2 Jan"), eodLateUntil)
 }

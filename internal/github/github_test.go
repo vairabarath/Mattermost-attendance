@@ -257,12 +257,14 @@ func TestParsePrivateKey(t *testing.T) {
 	if err := os.WriteFile(p, pkcs1, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, warn, err := LoadPrivateKey(p); err != nil || warn == "" {
-		t.Errorf("0644 key should load with a warning: %q %v", warn, err)
+	if _, err := LoadPrivateKey(p); err == nil || !strings.Contains(err.Error(), "chmod 400") {
+		t.Errorf("0644 key must be refused: %v", err)
 	}
-	_ = os.Chmod(p, 0o400)
-	if _, warn, err := LoadPrivateKey(p); err != nil || warn != "" {
-		t.Errorf("0400 key: %q %v", warn, err)
+	for _, mode := range []os.FileMode{0o400, 0o600} {
+		_ = os.Chmod(p, mode)
+		if _, err := LoadPrivateKey(p); err != nil {
+			t.Errorf("%o key: %v", mode, err)
+		}
 	}
 }
 
@@ -441,6 +443,31 @@ func TestRateLimitNotRetried(t *testing.T) {
 	}
 	if n := f.count("/graphql"); n != 1 {
 		t.Errorf("rate-limited call retried %d times", n-1)
+	}
+}
+
+// After a rate limit the org's calls fail fast until the reset (capped at
+// an hour), instead of hammering GitHub.
+func TestRateLimitRemembered(t *testing.T) {
+	f, srv := newFake(t)
+	f.rateLimited = true // reset in 2100
+	app := newTestApp(t, srv)
+	now := time.Now()
+	app.now = func() time.Time { return now }
+	_, _ = app.FetchSchema(context.Background(), testOrg, 1)
+
+	f.rateLimited = false
+	_, err := app.FetchSchema(context.Background(), testOrg, 1)
+	var rl *RateLimitError
+	if !errors.As(err, &rl) || f.count("/graphql") != 1 {
+		t.Fatalf("second call: %v, %d calls", err, f.count("/graphql"))
+	}
+	if !rl.Reset.Equal(now.Add(maxRateLimitWait)) {
+		t.Errorf("wait not capped: %v", rl.Reset)
+	}
+	now = now.Add(maxRateLimitWait + time.Second)
+	if _, err := app.FetchSchema(context.Background(), testOrg, 1); err != nil || f.count("/graphql") != 2 {
+		t.Errorf("after the reset: %v, %d calls", err, f.count("/graphql"))
 	}
 }
 

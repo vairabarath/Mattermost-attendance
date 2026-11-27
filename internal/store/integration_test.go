@@ -565,12 +565,12 @@ func TestIntegrationEODSyncLease(t *testing.T) {
 	if ids, _ := s.PendingEODSyncs(ctx, 6, since); len(ids) != 0 {
 		t.Errorf("leased report listed as pending: %v", ids)
 	}
-	if err := s.MarkEODItemSynced(ctx, r.ID, "https://github.com/o/r/issues/1"); err != nil {
+	if err := s.MarkEODItemSynced(ctx, r.ID, claimed.SyncVersion, "https://github.com/o/r/issues/1"); err != nil {
 		t.Fatal(err)
 	}
 	act := &attendance.Activity{Commits: 4, Branches: []attendance.BranchWork{{Repo: "o/r", Branch: "1-x", Issue: 1}}}
-	if err := s.FinishEODSync(ctx, r.ID, "failed", "activity: boom", act); err != nil {
-		t.Fatal(err)
+	if cur, err := s.FinishEODSync(ctx, r.ID, claimed.SyncVersion, "failed", "activity: boom", act); err != nil || !cur {
+		t.Fatal(cur, err)
 	}
 	got, _ := s.GetEODReportByID(ctx, r.ID)
 	if got.SyncStatus != "failed" || got.SyncError != "activity: boom" || !got.Items[0].Synced ||
@@ -585,7 +585,7 @@ func TestIntegrationEODSyncLease(t *testing.T) {
 		t.Errorf("attempt limit ignored: %v", ids)
 	}
 	// A nil activity keeps the stored one; a resubmission resets attempts.
-	_ = s.FinishEODSync(ctx, r.ID, "synced", "", nil)
+	_, _ = s.FinishEODSync(ctx, r.ID, claimed.SyncVersion, "synced", "", nil)
 	if got, _ := s.GetEODReportByID(ctx, r.ID); got.Activity == nil || got.SyncStatus != "synced" {
 		t.Errorf("activity lost: %+v", got)
 	}
@@ -668,5 +668,118 @@ func TestIntegrationEODStatuses(t *testing.T) {
 	}
 	if root, _ := s.EODThreadRoot(ctx, teamA, "2026-11-26"); root != "post1" {
 		t.Errorf("root %q", root)
+	}
+}
+
+// Two quick submissions of the same report (e.g. a double click) create
+// exactly one reply in the EOD thread.
+func TestIntegrationEODReplyConcurrent(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	r, err := s.SaveEODReport(ctx, attendance.EODReport{UserID: u1, TeamID: teamA, Day: "2026-11-27", DidToday: "Did the work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	created := 0
+	ids := make([]string, 5)
+	var wg sync.WaitGroup
+	for i := range ids {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			id, _, err := s.EnsureEODReply(ctx, r.ID, func() (string, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				created++
+				time.Sleep(20 * time.Millisecond) // widen the race window
+				return "reply-1", nil
+			})
+			if err != nil {
+				t.Error(err)
+			}
+			ids[i] = id
+		}(i)
+	}
+	wg.Wait()
+	if created != 1 {
+		t.Errorf("reply created %d times", created)
+	}
+	for _, id := range ids {
+		if id != "reply-1" {
+			t.Errorf("ids: %v", ids)
+		}
+	}
+}
+
+// After a crash mid-sync the lease runs out and the retry job takes over.
+func TestIntegrationEODSyncLeaseExpires(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	r, err := s.SaveEODReport(ctx, attendance.EODReport{UserID: u1, TeamID: teamA, Day: "2026-11-27", DidToday: "Did the work", SyncStatus: "pending"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := s.ClaimEODSync(ctx, r.ID, time.Second); err != nil || c == nil {
+		t.Fatalf("claim: %v", err)
+	}
+	time.Sleep(1200 * time.Millisecond) // the sync "crashed": no FinishEODSync
+	if ids, _ := s.PendingEODSyncs(ctx, 6, time.Now().Add(-time.Hour)); len(ids) != 1 {
+		t.Fatalf("expired lease not listed: %v", ids)
+	}
+	c, err := s.ClaimEODSync(ctx, r.ID, time.Minute)
+	if err != nil || c == nil || c.SyncAttempts != 2 {
+		t.Fatalf("reclaim: %+v %v", c, err)
+	}
+}
+
+// Migrations run on every start: running them again changes nothing.
+func TestIntegrationMigrationsRerun(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	before := countRows(t, s, `SELECT count(*) FROM schema_migrations`)
+	if err := s.Migrate(ctx, migrations.FS, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	if after := countRows(t, s, `SELECT count(*) FROM schema_migrations`); after != before || before < 6 {
+		t.Errorf("migrations %d → %d", before, after)
+	}
+}
+
+// A resubmission during a sync: the old sync can't mark the new items or
+// finish the new version; it only gives the lease back.
+func TestIntegrationEODSyncVersion(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	const i1 = "https://github.com/o/r/issues/1"
+	save := func(status string) attendance.EODReport {
+		r, err := s.SaveEODReport(ctx, attendance.EODReport{UserID: u1, TeamID: teamA, Day: "2026-11-27", DidToday: "Did the work",
+			SyncStatus: "pending", Items: []attendance.EODItem{{IssueURL: i1, NewStatus: status}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	r := save("Blocked")
+	old, err := s.ClaimEODSync(ctx, r.ID, time.Minute)
+	if err != nil || old == nil {
+		t.Fatal(err)
+	}
+	save("Done") // resubmitted while the old sync runs
+	if again, _ := s.ClaimEODSync(ctx, r.ID, time.Minute); again != nil {
+		t.Fatal("resubmit broke the running sync's lease")
+	}
+	_ = s.MarkEODItemSynced(ctx, r.ID, old.SyncVersion, i1)
+	cur, err := s.FinishEODSync(ctx, r.ID, old.SyncVersion, "synced", "", nil)
+	if err != nil || cur {
+		t.Fatalf("stale finish: current=%v err=%v", cur, err)
+	}
+	got, _ := s.GetEODReportByID(ctx, r.ID)
+	if got.SyncStatus != "pending" || got.Items[0].Synced || got.Items[0].NewStatus != "Done" || got.SyncVersion != old.SyncVersion+1 {
+		t.Fatalf("after stale finish: %+v", got)
+	}
+	// Lease released: the new version can be claimed and finished.
+	next, err := s.ClaimEODSync(ctx, r.ID, time.Minute)
+	if err != nil || next == nil || next.SyncVersion != got.SyncVersion {
+		t.Fatalf("reclaim: %+v %v", next, err)
+	}
+	if cur, err := s.FinishEODSync(ctx, r.ID, next.SyncVersion, "synced", "", nil); err != nil || !cur {
+		t.Fatalf("finish: %v %v", cur, err)
 	}
 }

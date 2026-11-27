@@ -223,7 +223,8 @@ func (t *Tasks) setStatus(ctx context.Context, teamID string, schema *Schema, it
 
 // StartTask implements attendance.TaskWriter: a member picked the issue as
 // today's work. It moves it to In progress unless it's already In progress,
-// In review or Blocked (a pick never moves work backwards).
+// In review or Blocked (a pick never moves work backwards). Issues not on
+// the team's Project are refused (ErrNotOnProject).
 func (t *Tasks) StartTask(ctx context.Context, teamID, login, issueURL string) (attendance.Pick, error) {
 	tp, ok := t.teams[teamID]
 	if !ok {
@@ -241,18 +242,19 @@ func (t *Tasks) StartTask(ctx context.Context, teamID, login, issueURL string) (
 	if err != nil {
 		return attendance.Pick{}, err
 	}
-	_, current := projectStatus(is, schema.ProjectID)
+	itemID, current := projectStatus(is, schema.ProjectID)
 	p := attendance.Pick{Number: is.Number, Title: is.Title, Status: current}
+	// The menu only offers issues on the team's Project: anything else is a
+	// tampered value (e.g. another team's issue in a shared org).
+	if itemID == "" {
+		return p, attendance.ErrNotOnProject
+	}
 	if is.State != "OPEN" {
 		return p, attendance.ErrIssueClosed
 	}
 	switch current {
 	case attendance.StatusInProgress, attendance.StatusInReview, attendance.StatusBlocked:
 		return p, nil
-	}
-	itemID, err := t.projectItem(ctx, tp, schema, is)
-	if err != nil {
-		return p, err
 	}
 	if err := t.setStatus(ctx, teamID, schema, itemID, optionID); err != nil {
 		return p, err

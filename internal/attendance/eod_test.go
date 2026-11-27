@@ -150,6 +150,7 @@ func (f *eodStore) SaveEODReport(_ context.Context, r EODReport) (EODReport, err
 	k := r.UserID + "/" + r.TeamID + "/" + r.Day
 	if old, ok := f.reports[k]; ok {
 		r.ID, r.ReplyPostID, r.BlockerPostID, r.Activity = old.ID, old.ReplyPostID, old.BlockerPostID, old.Activity
+		r.SyncVersion = old.SyncVersion + 1
 	} else {
 		f.nextID++
 		r.ID = f.nextID
@@ -222,8 +223,11 @@ func (f *eodStore) ClaimEODSync(_ context.Context, id int64, _ time.Duration) (*
 	c.Items = append([]EODItem(nil), r.Items...)
 	return &c, nil
 }
-func (f *eodStore) MarkEODItemSynced(_ context.Context, id int64, url string) error {
+func (f *eodStore) MarkEODItemSynced(_ context.Context, id int64, version int, url string) error {
 	r := f.byID(id)
+	if r.SyncVersion != version {
+		return nil
+	}
 	for i := range r.Items {
 		if r.Items[i].IssueURL == url {
 			r.Items[i].Synced = true
@@ -231,13 +235,16 @@ func (f *eodStore) MarkEODItemSynced(_ context.Context, id int64, url string) er
 	}
 	return nil
 }
-func (f *eodStore) FinishEODSync(_ context.Context, id int64, status, syncErr string, act *Activity) error {
+func (f *eodStore) FinishEODSync(_ context.Context, id int64, version int, status, syncErr string, act *Activity) (bool, error) {
 	r := f.byID(id)
+	if r.SyncVersion != version {
+		return false, nil
+	}
 	r.SyncStatus, r.SyncError = status, syncErr
 	if act != nil {
 		r.Activity = act
 	}
-	return nil
+	return true, nil
 }
 func (f *eodStore) PendingEODSyncs(context.Context, int, time.Time) ([]int64, error) {
 	var ids []int64
@@ -487,4 +494,33 @@ func TestEODNoChannelStillSaves(t *testing.T) {
 
 func svcTeam(attendance, admin string) config.Team {
 	return config.Team{ID: "A", AttendanceChannelID: attendance, AdminChannelID: admin}
+}
+
+// Signed forms and buttons outlive the report window: an old form can't
+// change a past day's report.
+func TestEODWindowCheckedOnUse(t *testing.T) {
+	svc, st, p, ft := newEODService(istAt(2026, 11, 26, 18, 0))
+	ft.eodOpen = []Task{task(45, StatusInProgress, 9)}
+	svc.Handle(context.Background(), Command{TeamID: "A", UserID: "u", TriggerID: "trig", Text: "out"})
+	form := p.dialogs[0]
+	btn := Click{Action: ActEOD, UserID: "u", Fields: map[string]string{"a": ActEOD, "u": "u", "t": "A", "d": "2026-11-26"}, TriggerID: "t2"}
+
+	// Next morning before 11:00: still open.
+	svc.Now = func() time.Time { return istAt(2026, 11, 27, 10, 30) }
+	if r := submit(t, svc, form, map[string]any{"did": "Late but fine"}); r.Error != "" {
+		t.Fatalf("10:30 next day: %+v", r)
+	}
+	// After 11:00, and two days later: closed.
+	for _, now := range []time.Time{istAt(2026, 11, 27, 11, 0), istAt(2026, 11, 28, 9, 0)} {
+		svc.Now = func() time.Time { return now }
+		if r := submit(t, svc, form, map[string]any{"did": "Rewriting history"}); !strings.Contains(r.Error, "Thu 26 Nov is closed") {
+			t.Errorf("%v: %+v", now, r)
+		}
+		if r := svc.HandleButton(context.Background(), btn); !strings.Contains(r.Text, "is closed") {
+			t.Errorf("button at %v: %q", now, r.Text)
+		}
+	}
+	if got := st.reports["u/A/2026-11-26"].DidToday; got != "Late but fine" {
+		t.Errorf("report changed after the window: %q", got)
+	}
 }

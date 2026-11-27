@@ -144,10 +144,12 @@ func RenderTaskList(tasks []Task, today string, loc *time.Location) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// mdEscape keeps issue titles from breaking markdown links and tables.
+// mdEscape keeps issue titles (written on GitHub, by anyone who can edit
+// the issue) from breaking markdown links and tables, or notifying a whole
+// channel with @channel, @all or @here.
 var mdEscaper = strings.NewReplacer("[", "\\[", "]", "\\]", "|", "\\|", "\n", " ", "\r", " ")
 
-func mdEscape(s string) string { return mdEscaper.Replace(s) }
+func mdEscape(s string) string { return safeText(mdEscaper.Replace(s)) }
 
 // GitHub logins: letters, digits and single hyphens, 1–39 chars.
 var githubLoginRe = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}$`)

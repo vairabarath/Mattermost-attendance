@@ -46,7 +46,9 @@ func (s *Store) SaveEODReport(ctx context.Context, r attendance.EODReport) (atte
 		ON CONFLICT (mm_user_id, team_id, day) DO UPDATE SET
 			did_today = EXCLUDED.did_today, blockers = EXCLUDED.blockers, tomorrow = EXCLUDED.tomorrow,
 			sync_status = EXCLUDED.sync_status, sync_error = NULL, sync_attempts = 0,
-			sync_claimed_until = NULL, updated_at = now()
+			sync_version = eod_reports.sync_version + 1, updated_at = now()
+			-- sync_claimed_until stays: a running sync keeps its lease, sees the
+			-- new version when it finishes and hands the report back
 		RETURNING id, reply_post_id, submitted_at, updated_at, sync_status`,
 		r.UserID, r.TeamID, day, r.DidToday, r.Blockers, r.Tomorrow, sync,
 	).Scan(&r.ID, &reply, &r.SubmittedAt, &r.UpdatedAt, &r.SyncStatus)
@@ -73,7 +75,7 @@ func (s *Store) SaveEODReport(ctx context.Context, r attendance.EODReport) (atte
 
 const eodReportCols = `id, mm_user_id, team_id, to_char(day, 'YYYY-MM-DD'), did_today, COALESCE(blockers, ''),
 	COALESCE(tomorrow, ''), sync_status, COALESCE(sync_error, ''), sync_attempts, gh_activity,
-	COALESCE(reply_post_id, ''), COALESCE(blocker_post_id, ''), submitted_at, updated_at`
+	COALESCE(reply_post_id, ''), COALESCE(blocker_post_id, ''), submitted_at, updated_at, sync_version`
 
 func scanEODReport(row pgx.Row) (*attendance.EODReport, error) {
 	var (
@@ -81,7 +83,7 @@ func scanEODReport(row pgx.Row) (*attendance.EODReport, error) {
 		act []byte
 	)
 	err := row.Scan(&r.ID, &r.UserID, &r.TeamID, &r.Day, &r.DidToday, &r.Blockers, &r.Tomorrow, &r.SyncStatus,
-		&r.SyncError, &r.SyncAttempts, &act, &r.ReplyPostID, &r.BlockerPostID, &r.SubmittedAt, &r.UpdatedAt)
+		&r.SyncError, &r.SyncAttempts, &act, &r.ReplyPostID, &r.BlockerPostID, &r.SubmittedAt, &r.UpdatedAt, &r.SyncVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -145,24 +147,35 @@ func (s *Store) ClaimEODSync(ctx context.Context, id int64, lease time.Duration)
 	return r, s.loadEODItems(ctx, r)
 }
 
-func (s *Store) MarkEODItemSynced(ctx context.Context, reportID int64, issueURL string) error {
-	_, err := s.Pool.Exec(ctx, `UPDATE eod_items SET synced = true WHERE report_id = $1 AND issue_url = $2`, reportID, issueURL)
+// MarkEODItemSynced marks an item written, only if the report is still at
+// version (a resubmission replaced the items otherwise).
+func (s *Store) MarkEODItemSynced(ctx context.Context, reportID int64, version int, issueURL string) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE eod_items i SET synced = true FROM eod_reports r
+		WHERE r.id = i.report_id AND r.id = $1 AND r.sync_version = $2 AND i.issue_url = $3`, reportID, version, issueURL)
 	return err
 }
 
-func (s *Store) FinishEODSync(ctx context.Context, id int64, status, syncErr string, act *attendance.Activity) error {
+// FinishEODSync records the outcome and releases the lease. If the report
+// was resubmitted meanwhile (another version), it only releases the lease
+// and reports current = false.
+func (s *Store) FinishEODSync(ctx context.Context, id int64, version int, status, syncErr string, act *attendance.Activity) (bool, error) {
 	var actJSON []byte
 	if act != nil {
 		var err error
 		if actJSON, err = json.Marshal(act); err != nil {
-			return err
+			return false, err
 		}
 	}
-	_, err := s.Pool.Exec(ctx, `
-		UPDATE eod_reports SET sync_status = $2, sync_error = NULLIF($3, ''),
-			gh_activity = COALESCE($4::jsonb, gh_activity), sync_claimed_until = NULL
-		WHERE id = $1`, id, status, syncErr, actJSON)
-	return err
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE eod_reports SET sync_status = $3, sync_error = NULLIF($4, ''),
+			gh_activity = COALESCE($5::jsonb, gh_activity), sync_claimed_until = NULL
+		WHERE id = $1 AND sync_version = $2`, id, version, status, syncErr, actJSON)
+	if err != nil || tag.RowsAffected() == 1 {
+		return err == nil, err
+	}
+	_, err = s.Pool.Exec(ctx, `UPDATE eod_reports SET sync_claimed_until = NULL WHERE id = $1`, id)
+	return false, err
 }
 
 func (s *Store) PendingEODSyncs(ctx context.Context, maxAttempts int, since time.Time) ([]int64, error) {

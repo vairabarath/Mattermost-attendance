@@ -150,13 +150,10 @@ func newTaskSource(cfg *config.Config, log *slog.Logger) *github.Tasks {
 		log.Info("github integration off (GITHUB_APP_ID not set)")
 		return nil
 	}
-	key, warn, err := github.LoadPrivateKey(cfg.GitHubPrivateKeyPath)
+	key, err := github.LoadPrivateKey(cfg.GitHubPrivateKeyPath)
 	if err != nil {
 		log.Error("github integration off: can't load the App private key", "err", err)
 		return nil
-	}
-	if warn != "" {
-		log.Warn(warn)
 	}
 	glog := log.With("component", "github")
 	teams := map[string]github.TeamProject{}

@@ -59,6 +59,8 @@ type fakeWriter struct {
 
 	started             []string // StartTask calls
 	closedURL, inReview string
+	offProject          string
+	onApply             func() // runs inside ApplyEODStatus (e.g. a resubmit mid-sync)
 }
 
 func (w *fakeWriter) ApplyEODStatus(_ context.Context, _, login, url, status, comment string) (bool, error) {
@@ -72,6 +74,12 @@ func (w *fakeWriter) ApplyEODStatus(_ context.Context, _, login, url, status, co
 	}
 	w.applied = append(w.applied, issueRef(url)+"="+status)
 	w.comments = append(w.comments, comment)
+	if f := w.onApply; f != nil {
+		w.onApply = nil
+		w.mu.Unlock()
+		f()
+		w.mu.Lock()
+	}
 	return status == StatusDone, nil
 }
 func (w *fakeWriter) StartTask(_ context.Context, _, login, url string) (Pick, error) {
@@ -83,6 +91,8 @@ func (w *fakeWriter) StartTask(_ context.Context, _, login, url string) (Pick, e
 		return Pick{}, ErrNotAssigned
 	case url == w.failURL:
 		return Pick{}, errors.New("github 502")
+	case url == w.offProject:
+		return Pick{}, ErrNotOnProject
 	case url == w.closedURL:
 		return Pick{Number: issueNum(url), Title: "Old"}, ErrIssueClosed
 	case url == w.inReview:
@@ -254,4 +264,46 @@ func TestAddJustClosed(t *testing.T) {
 		t.Errorf("truncated list changed the count: %+v", act)
 	}
 	addJustClosed(nil, []string{b}) // activity failed: no panic
+}
+
+// A resubmission while a sync runs: the old sync must not mark the new
+// version synced; the report is handed back and synced again.
+func TestSyncEODResubmitDuringSync(t *testing.T) {
+	svc, st, p, ft := newEODService(istAt(2026, 11, 26, 18, 0))
+	w := &fakeWriter{}
+	svc.Writer = w
+	svc.eodQueue = make(chan int64, 4)
+	ft.eodOpen = []Task{task(45, StatusInProgress, 9), task(46, StatusInProgress, 8)}
+	submitted(t, svc, p, map[string]any{"did": "First version of today", "s0": StatusBlocked, "s1": noChange})
+	id := <-svc.eodQueue
+
+	// While #45=Blocked is being written, the member resubmits: #45 Done, #46 Done.
+	w.onApply = func() {
+		if r := submit(t, svc, p.dialogs[len(p.dialogs)-1], map[string]any{
+			"did": "Second version of today", "s0": StatusDone, "s1": StatusDone}); r.Error != "" || len(r.Errors) > 0 {
+			t.Fatalf("resubmit: %+v", r)
+		}
+	}
+	svc.SyncEOD(context.Background(), id)
+
+	r := st.reports["u/A/2026-11-26"]
+	if r.SyncStatus != "pending" {
+		t.Fatalf("old sync finished the new version: %q", r.SyncStatus)
+	}
+	for _, it := range r.Items {
+		if it.Synced {
+			t.Errorf("new item marked synced by the old sync: %+v", it)
+		}
+	}
+	// Handed back: queued again (once by the resubmit, once by the old sync).
+	if len(svc.eodQueue) == 0 {
+		t.Fatal("not queued again")
+	}
+	for len(svc.eodQueue) > 0 {
+		svc.SyncEOD(context.Background(), <-svc.eodQueue)
+	}
+	r = st.reports["u/A/2026-11-26"]
+	if r.SyncStatus != "synced" || strings.Join(w.applied, ",") != "#45=Blocked,#45=Done,#46=Done" {
+		t.Errorf("after resync: %q %v", r.SyncStatus, w.applied)
+	}
 }

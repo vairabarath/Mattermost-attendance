@@ -25,8 +25,11 @@ const (
 	maxPickOptions     = 25
 )
 
-// ErrIssueClosed refuses picking an issue that is already closed.
-var ErrIssueClosed = errors.New("issue is closed")
+// Errors from TaskWriter.StartTask.
+var (
+	ErrIssueClosed  = errors.New("issue is closed")
+	ErrNotOnProject = errors.New("issue not on the team's project")
+)
 
 // Pick is the outcome of picking an issue.
 type Pick struct {
@@ -128,6 +131,9 @@ func (s *Service) pickClick(ctx context.Context, c Click) (Reply, error) {
 	switch {
 	case errors.Is(err, ErrNotAssigned):
 		return reply(fmt.Sprintf("**%s** isn't assigned to you on GitHub. Run `/att tasks` for your current list.", issueRef(issueURL))), nil
+	case errors.Is(err, ErrNotOnProject):
+		s.Log.Warn("pick: issue not on the team's project", "user_id", c.UserID, "issue", issueURL)
+		return reply("That isn't one of your tasks. Run `/att tasks` again."), nil
 	case errors.Is(err, ErrIssueClosed):
 		return reply(fmt.Sprintf("**%s** is already closed.", ref)), nil
 	case err != nil:

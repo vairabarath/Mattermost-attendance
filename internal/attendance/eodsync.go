@@ -20,6 +20,7 @@ import (
 const (
 	maxSyncAttempts = 6               // the submit-time try + 5 retries (15 min apart)
 	syncLease       = 5 * time.Minute // one sync of a report at a time
+	syncDeadline    = 4 * time.Minute // a sync's whole run, well inside the lease
 	syncWindow      = 72 * time.Hour  // older unsynced reports are left alone
 	commentDidLen   = 300
 	notAssignedNote = " skipped: not assigned to you"
@@ -71,10 +72,13 @@ type EODSyncStore interface {
 	// ClaimEODSync takes a lease on an unsynced report and counts an
 	// attempt; nil when it's synced or another sync holds it.
 	ClaimEODSync(ctx context.Context, id int64, lease time.Duration) (*EODReport, error)
-	MarkEODItemSynced(ctx context.Context, reportID int64, issueURL string) error
-	// FinishEODSync records the outcome and releases the lease; a nil
-	// activity keeps the stored one.
-	FinishEODSync(ctx context.Context, id int64, status, syncErr string, act *Activity) error
+	// MarkEODItemSynced marks an item written if the report is still at
+	// version.
+	MarkEODItemSynced(ctx context.Context, reportID int64, version int, issueURL string) error
+	// FinishEODSync records the outcome for version and releases the lease;
+	// a nil activity keeps the stored one. current is false (and nothing
+	// but the lease changes) if the report was resubmitted meanwhile.
+	FinishEODSync(ctx context.Context, id int64, version int, status, syncErr string, act *Activity) (current bool, err error)
 	// PendingEODSyncs lists unsynced, unclaimed reports updated since,
 	// with fewer than maxAttempts attempts.
 	PendingEODSyncs(ctx context.Context, maxAttempts int, since time.Time) ([]int64, error)
@@ -220,6 +224,10 @@ func (s *Service) SyncEOD(ctx context.Context, id int64) {
 		return // synced already, or another sync is running
 	}
 	log = log.With("team_id", r.TeamID, "user_id", r.UserID, "attempt", r.SyncAttempts)
+	// Finish well inside the lease, so no second sync of this report can
+	// start while this one still writes to GitHub.
+	ctx, cancel := context.WithTimeout(ctx, syncDeadline)
+	defer cancel()
 
 	ms, err := s.Store.GetMember(ctx, r.UserID)
 	if err != nil || ms == nil {
@@ -259,7 +267,7 @@ func (s *Service) SyncEOD(ctx context.Context, id int64) {
 			errs = append(errs, issueRef(it.IssueURL)+": "+err.Error())
 			continue
 		}
-		if err := s.Store.MarkEODItemSynced(ctx, r.ID, it.IssueURL); err != nil {
+		if err := s.Store.MarkEODItemSynced(ctx, r.ID, r.SyncVersion, it.IssueURL); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}
@@ -285,8 +293,17 @@ func (s *Service) finishSync(ctx context.Context, log interface {
 	Info(string, ...any)
 	Error(string, ...any)
 }, r *EODReport, status, syncErr string, act *Activity) {
-	if err := s.Store.FinishEODSync(ctx, r.ID, status, clip(syncErr, 1000), act); err != nil {
+	// Record the result even if the sync ran out of time.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	current, err := s.Store.FinishEODSync(ctx, r.ID, r.SyncVersion, status, clip(syncErr, 1000), act)
+	if err != nil {
 		log.Error("eod sync: save result", "err", err)
+		return
+	}
+	if !current {
+		log.Info("eod sync: report changed during sync; syncing the new version")
+		s.enqueueEODSync(r.ID)
 		return
 	}
 	log.Info("eod sync done", "status", status)

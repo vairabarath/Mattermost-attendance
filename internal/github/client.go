@@ -42,7 +42,12 @@ type App struct {
 	mu       sync.Mutex
 	installs map[string]int64 // lower(org) → installation id
 	tokens   map[int64]installToken
+	limited  map[string]time.Time // lower(org) → rate limited until
 }
+
+// maxRateLimitWait caps how long a rate limit stops calls for an org, in
+// case GitHub sends a bad reset time.
+const maxRateLimitWait = time.Hour
 
 type installToken struct {
 	value   string
@@ -66,27 +71,27 @@ func NewApp(apiURL string, appID int64, key *rsa.PrivateKey, log *slog.Logger) *
 		now:         time.Now,
 		retryDelays: []time.Duration{500 * time.Millisecond, 2 * time.Second},
 		installs:    map[string]int64{},
+		limited:     map[string]time.Time{},
 		tokens:      map[int64]installToken{},
 	}
 }
 
 // LoadPrivateKey reads the App's PEM private key (PKCS#1 or PKCS#8). It
-// returns a warning when the file is readable by group or others.
-func LoadPrivateKey(path string) (*rsa.PrivateKey, string, error) {
+// refuses a file that group or others can access (spec §11: readable only
+// by the service).
+func LoadPrivateKey(path string) (*rsa.PrivateKey, error) {
 	st, err := os.Stat(path)
 	if err != nil {
-		return nil, "", fmt.Errorf("github private key: %w", err)
+		return nil, fmt.Errorf("github private key: %w", err)
 	}
-	warn := ""
-	if st.Mode().Perm()&0o077 != 0 {
-		warn = fmt.Sprintf("github private key %s is readable by group/others (mode %o); use chmod 400", path, st.Mode().Perm())
+	if perm := st.Mode().Perm(); perm&0o077 != 0 {
+		return nil, fmt.Errorf("github private key %s can be read by group/others (mode %o): run chmod 400 on it, owned by the service user", path, perm)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, "", fmt.Errorf("github private key: %w", err)
+		return nil, fmt.Errorf("github private key: %w", err)
 	}
-	key, err := ParsePrivateKey(raw)
-	return key, warn, err
+	return ParsePrivateKey(raw)
 }
 
 // ParsePrivateKey parses a PEM RSA private key.
@@ -310,6 +315,11 @@ func (a *App) token(ctx context.Context, org string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if r.status == http.StatusNotFound { // uninstalled or reinstalled: look the installation up again next time
+		a.mu.Lock()
+		delete(a.installs, strings.ToLower(org))
+		a.mu.Unlock()
+	}
 	if r.status/100 != 2 {
 		return "", apiErr(path, r)
 	}
@@ -346,12 +356,29 @@ func (a *App) rest(ctx context.Context, org, method, path string, body any, retr
 			return nil, err
 		}
 	}
+	k := strings.ToLower(org)
+	a.mu.Lock()
+	until := a.limited[k]
+	a.mu.Unlock()
+	if a.now().Before(until) { // still rate limited: don't make it worse
+		return nil, &RateLimitError{Path: path, Reset: until}
+	}
 	for attempt := 0; ; attempt++ {
 		tok, err := a.token(ctx, org)
 		if err != nil {
 			return nil, err
 		}
 		r, err := a.send(ctx, "token "+tok, method, path, raw, retry)
+		var rl *RateLimitError
+		if errors.As(err, &rl) {
+			reset := rl.Reset
+			if max := a.now().Add(maxRateLimitWait); reset.After(max) {
+				reset = max
+			}
+			a.mu.Lock()
+			a.limited[k] = reset
+			a.mu.Unlock()
+		}
 		if err != nil {
 			return nil, err
 		}

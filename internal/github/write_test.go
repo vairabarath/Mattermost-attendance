@@ -258,12 +258,11 @@ func TestStartTask(t *testing.T) {
 		}
 	}
 
-	// Not on the Project yet: added, then In progress.
+	// Not on the team's Project: refused, not added (the menu never offers it).
 	wf.mutations = nil
 	wf.resource = issueResource("Jana-Dev", "OPEN", nil, false)
-	if p, err := tasks.StartTask(ctx, "A", "Jana-Dev", issueURL); err != nil || !p.Started ||
-		strings.Join(wf.mutations, ";") != "add-to-project;status item=PVTI_new field=PVTSSF_status option=47fc9ee4" {
-		t.Errorf("not on project: %+v %v %v", p, err, wf.mutations)
+	if _, err := tasks.StartTask(ctx, "A", "Jana-Dev", issueURL); !errors.Is(err, attendance.ErrNotOnProject) || len(wf.mutations) != 0 {
+		t.Errorf("not on project: %v %v", err, wf.mutations)
 	}
 
 	// Someone else's issue, or a closed one: nothing written.

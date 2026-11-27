@@ -103,10 +103,12 @@ func TestPickClick(t *testing.T) {
 
 	// Refusals record nothing.
 	w.notMine, w.closedURL, w.failURL = orgTask(17, "").URL, orgTask(18, "").URL, orgTask(19, "").URL
+	w.offProject = orgTask(20, "").URL
 	for url, want := range map[string]string{
-		w.notMine:   "**#17** isn't assigned to you",
-		w.closedURL: "**#18 Old** is already closed",
-		w.failURL:   "Couldn't update GitHub",
+		w.offProject: "isn't one of your tasks",
+		w.notMine:    "**#17** isn't assigned to you",
+		w.closedURL:  "**#18 Old** is already closed",
+		w.failURL:    "Couldn't update GitHub",
 	} {
 		if r := pick(url); !strings.Contains(r.Text, want) {
 			t.Errorf("%s: %q", url, r.Text)
