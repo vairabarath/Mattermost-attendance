@@ -351,6 +351,7 @@ func (s *Service) submitWFH(ctx context.Context, d DialogSubmit) (DialogResult, 
 	if err != nil || full == nil {
 		return DialogResult{}, err
 	}
+	s.notify(d.UserID, EventWFH, teamID)
 
 	if team.AdminChannelID != "" {
 		used, err := s.usedThisMonth(ctx, *full)
@@ -474,6 +475,7 @@ func (s *Service) decide(ctx context.Context, id int64, teamID, status, adminID,
 	if err != nil {
 		return r, err
 	}
+	s.notify(r.UserID, EventWFH, teamID)
 	if err := s.Store.InsertAudit(ctx, AuditEntry{
 		ActorID: adminID, TargetID: r.UserID, TeamID: teamID, Action: "wfh_" + strings.TrimSuffix(status, "d"),
 		Old:    map[string]any{"wfh_id": id, "status": WFHPending},
@@ -488,6 +490,7 @@ func (s *Service) decide(ctx context.Context, id int64, teamID, status, adminID,
 		if changed, err := s.Store.SetOpenSessionMode(ctx, r.UserID, teamID, "wfh"); err != nil {
 			s.Log.Error("set open session to wfh", "err", err)
 		} else if changed {
+			s.notify(r.UserID, EventSession, teamID) // the open session is now 🏠
 			if open, err := s.Store.OpenSession(ctx, r.UserID); err == nil && !onBreak(open) {
 				s.Status.Enqueue(r.UserID, StatusWorkingFromHome, false)
 			}
@@ -570,6 +573,7 @@ func (s *Service) wfhCancel(ctx context.Context, c Command, args string) (Reply,
 		s.Log.Error("WFH audit", "err", err)
 	}
 	s.refreshAdminPost(ctx, *r)
+	s.notify(c.UserID, EventWFH, r.TeamID)
 	return text(fmt.Sprintf("🚫 WFH request #%d (%s) cancelled.", id, s.wfhDates(*r))), nil
 }
 

@@ -304,6 +304,7 @@ func (s *Service) fix(ctx context.Context, c Command, args string) (Reply, error
 	case err != nil:
 		return Reply{}, err
 	}
+	s.notify(target.ID, EventSession, c.TeamID) // their hours changed
 	var oldTotal time.Duration
 	for _, v := range NetByDay(res.Old, s.Now(), s.Loc) {
 		oldTotal += v

@@ -106,3 +106,17 @@ func TestPanelOnlyForTeamMembers(t *testing.T) {
 		t.Errorf("no people api: %v", err)
 	}
 }
+
+func (f *eodStore) FixDay(context.Context, FixRequest) (FixResult, error)      { return FixResult{}, nil }
+func (f *eodStore) UpsertMember(context.Context, string, string, string) error { return nil }
+
+// An admin's /att fix refreshes the member's panel (their hours changed).
+func TestFixNotifiesMember(t *testing.T) {
+	svc, _, _, _ := newAdminEODService(istAt(2026, 11, 27, 10, 0))
+	var got notes
+	svc.Notify = got.record
+	out := run(svc, "A", "teamadmin", "fix @jana 2026-11-25 in 09:00 out 17:00 forgot to check in")
+	if !strings.Contains(out, "Fixed @jana") || strings.Join(got, ",") != "u:session_changed:A" {
+		t.Errorf("reply %q, notified %v", out, got)
+	}
+}

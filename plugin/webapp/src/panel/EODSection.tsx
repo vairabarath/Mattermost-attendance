@@ -7,7 +7,7 @@ import {timeOfDay} from 'format';
 import React, {useCallback, useEffect, useState} from 'react';
 
 import EODForm from './EODForm';
-import {REFRESH_EVENT} from './refresh';
+import {useRefresh} from './refresh';
 
 type Props = {
     teamId: string;
@@ -44,12 +44,8 @@ export default function EODSection({teamId, open, onOpen, onClose}: Props) {
         }
     }, [open, load]);
 
-    useEffect(() => {
-        // Never reload under an open form: it would wipe what's being typed.
-        const refresh = () => !open && load();
-        window.addEventListener(REFRESH_EVENT, refresh);
-        return () => window.removeEventListener(REFRESH_EVENT, refresh);
-    }, [load, open]);
+    // Never reload under an open form: it would wipe what's being typed.
+    useRefresh(['eod_changed', 'session_changed'], load, !open);
 
     if (open) {
         if (!form) {

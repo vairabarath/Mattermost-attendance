@@ -127,11 +127,13 @@ func TestSweepBoard(t *testing.T) {
 	linked := map[string]bool{"jana-dev": true}
 	since := time.Date(2026, 11, 27, 10, 0, 0, 0, time.FixedZone("IST", 19800))
 
-	n, err := tasks.SweepBoard(context.Background(), "A", since, linked)
+	added, err := tasks.SweepBoard(context.Background(), "A", since, linked)
 	// #1 and #5 (assigned to a linked member, not on this Project); not #2
 	// (already on it), #3 (unassigned), #4 (not linked), or the non-issue.
-	if err != nil || n != 2 || strings.Count(strings.Join(wf.mutations, ";"), "add-to-project") != 2 {
-		t.Fatalf("added %d %v: %v", n, err, wf.mutations)
+	// Each added issue comes with its linked assignees (lowercase).
+	if err != nil || len(added) != 2 || strings.Count(strings.Join(wf.mutations, ";"), "add-to-project") != 2 ||
+		strings.Join(added[0], ",") != "jana-dev" || strings.Join(added[1], ",") != "jana-dev" {
+		t.Fatalf("added %v %v: %v", added, err, wf.mutations)
 	}
 	if query != "org:inkyank-org is:issue is:open archived:false updated:>=2026-11-27T04:30:00+00:00" {
 		t.Errorf("query %q", query)
@@ -152,8 +154,8 @@ func TestAdoptionNeedsOneProjectPerOrg(t *testing.T) {
 		"A": {Org: testOrg, Number: 1}, "C": {Org: strings.ToUpper(testOrg), Number: 2},
 	}, quietLog())
 	tasks.AddAssigned = true
-	if n, err := tasks.SweepBoard(context.Background(), "A", time.Time{}, map[string]bool{"jana-dev": true}); n != 0 || err != nil {
-		t.Errorf("sweep: %d %v", n, err)
+	if added, err := tasks.SweepBoard(context.Background(), "A", time.Time{}, map[string]bool{"jana-dev": true}); len(added) != 0 || err != nil {
+		t.Errorf("sweep: %v %v", added, err)
 	}
 	if _, err := tasks.StartTask(context.Background(), "A", "Jana-Dev", issueURL); !errors.Is(err, attendance.ErrNotOnProject) {
 		t.Errorf("pick: %v", err)

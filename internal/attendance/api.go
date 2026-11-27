@@ -18,6 +18,7 @@ const (
 	EventSession = "session_changed"
 	EventTasks   = "tasks_changed"
 	EventEOD     = "eod_changed"
+	EventWFH     = "wfh_changed"
 )
 
 // TeamRef names a team.

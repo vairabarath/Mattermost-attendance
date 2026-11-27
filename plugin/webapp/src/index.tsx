@@ -7,7 +7,8 @@ import '@mattermost/compass-ui/styles';
 
 import {publicURL, setSiteURL} from 'client';
 import manifest from 'manifest';
-import Panel, {REFRESH_EVENT} from 'panel/Panel';
+import Panel from 'panel/Panel';
+import {ALL, requestRefresh} from 'panel/refresh';
 import type {Store} from 'redux';
 
 import type {GlobalState} from '@mattermost/types/store';
@@ -18,8 +19,6 @@ import type {PluginRegistry} from 'types/mattermost-webapp';
 
 // Events the bot sends (through the plugin) when something changed.
 export const LIVE_EVENTS = ['session_changed', 'tasks_changed', 'eod_changed', 'wfh_changed', 'team_changed'];
-
-const refresh = () => window.dispatchEvent(new Event(REFRESH_EVENT));
 
 export default class Plugin {
     public async initialize(registry: PluginRegistry, store: Store<GlobalState>) {
@@ -35,11 +34,14 @@ export default class Plugin {
         });
 
         for (const ev of LIVE_EVENTS) {
-            registry.registerWebSocketEventHandler(`custom_${manifest.id}_${ev}`, refresh);
+            registry.registerWebSocketEventHandler<{team_id?: string}>(
+                `custom_${manifest.id}_${ev}`,
+                (msg) => requestRefresh(ev, msg.data?.team_id),
+            );
         }
 
-        // Events sent while disconnected are lost: reload when we're back.
-        registry.registerReconnectHandler(refresh);
+        // Events sent while disconnected are lost: reload everything when we're back.
+        registry.registerReconnectHandler(() => requestRefresh(ALL));
     }
 }
 

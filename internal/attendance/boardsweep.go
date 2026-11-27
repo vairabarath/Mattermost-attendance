@@ -40,9 +40,12 @@ func (j *Jobs) SweepBoards(ctx context.Context, full bool) {
 		return
 	}
 	linked := map[string]bool{}
-	for _, ms := range settings {
+	userByLogin := map[string]string{}
+	for id, ms := range settings {
 		if ms.GitHubLogin != "" {
-			linked[strings.ToLower(ms.GitHubLogin)] = true
+			l := strings.ToLower(ms.GitHubLogin)
+			linked[l] = true
+			userByLogin[l] = id
 		}
 	}
 	if len(linked) == 0 {
@@ -58,15 +61,26 @@ func (j *Jobs) SweepBoards(ctx context.Context, full bool) {
 			since = last.Add(-sweepOverlap)
 		}
 		sctx, cancel := context.WithTimeout(ctx, sweepTimeout)
-		n, err := j.Board.SweepBoard(sctx, t.ID, since, linked)
+		added, err := j.Board.SweepBoard(sctx, t.ID, since, linked)
 		cancel()
+		// Issues added before an error are on the board: refresh their
+		// assignees' panels either way.
+		notified := map[string]bool{}
+		for _, who := range added {
+			for _, l := range who {
+				if uid := userByLogin[l]; uid != "" && !notified[uid] && j.Notify != nil {
+					notified[uid] = true
+					j.Notify(uid, EventTasks, t.ID)
+				}
+			}
+		}
 		if err != nil {
 			j.Log.Warn("board sweep failed; the next run retries", "team", t.Name, "full", since.IsZero(), "err", err)
 			continue
 		}
 		j.lastSweep[t.ID] = start
-		if n > 0 || since.IsZero() {
-			j.Log.Info("board sweep done", "team", t.Name, "full", since.IsZero(), "added", n)
+		if len(added) > 0 || since.IsZero() {
+			j.Log.Info("board sweep done", "team", t.Name, "full", since.IsZero(), "added", len(added))
 		}
 	}
 }

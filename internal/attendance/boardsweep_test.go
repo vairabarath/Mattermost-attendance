@@ -11,11 +11,11 @@ import (
 type fakeSweeper struct {
 	calls []string // team@since(full|HH:MM)
 	fail  map[string]error
-	added int
+	added [][]string
 }
 
 func (f *fakeSweeper) Configured(team string) bool { return team == "A" || team == "B" }
-func (f *fakeSweeper) SweepBoard(_ context.Context, team string, since time.Time, linked map[string]bool) (int, error) {
+func (f *fakeSweeper) SweepBoard(_ context.Context, team string, since time.Time, linked map[string]bool) ([][]string, error) {
 	s := "full"
 	if !since.IsZero() {
 		s = since.In(ist).Format("15:04")
@@ -26,7 +26,7 @@ func (f *fakeSweeper) SweepBoard(_ context.Context, team string, since time.Time
 	}
 	f.calls = append(f.calls, team+"@"+s+"/"+strings.Join(logins, ","))
 	if err := f.fail[team]; err != nil {
-		return 0, err
+		return f.added, err
 	}
 	return f.added, nil
 }
@@ -114,5 +114,24 @@ func TestOffBoardTasksListedAndAdded(t *testing.T) {
 	svc.Handle(context.Background(), Command{TeamID: "A", UserID: "u", Text: "tasks"})
 	if len(bg) != 0 {
 		t.Error("background work without off-board issues")
+	}
+}
+
+// The assignee of an issue the sweep added gets a live refresh, once per
+// team, even if the run failed after adding it.
+func TestSweepNotifiesAssignees(t *testing.T) {
+	st := newFakeJobStore()
+	st.members["u1"] = MemberSettings{UserID: "u1", GitHubLogin: "Jana-Dev"}
+	st.members["u2"] = MemberSettings{UserID: "u2", GitHubLogin: "vairabarath"}
+	j, _ := newJobs(st, nil)
+	var got notes
+	j.Notify = got.record
+	sw := &fakeSweeper{added: [][]string{{"jana-dev"}, {"jana-dev", "vairabarath"}}, fail: map[string]error{"B": errors.New("502")}}
+	j.Board = sw
+	j.Now = func() time.Time { return istAt(2026, 11, 27, 10, 0) }
+	j.SweepBoards(context.Background(), false)
+	want := "u1:tasks_changed:A,u2:tasks_changed:A,u1:tasks_changed:B,u2:tasks_changed:B"
+	if strings.Join(got, ",") != want {
+		t.Errorf("notified %v", got)
 	}
 }

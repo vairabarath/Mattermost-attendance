@@ -191,8 +191,14 @@ func TestNonAdminCannotApprove(t *testing.T) {
 func TestApproveSameDayUpdatesOpenSessionAndDMs(t *testing.T) {
 	st := &wfhStore{req: pendingReq(), modeChanged: true}
 	svc, posts := newWFHService(st)
+	var got notes
+	svc.Notify = got.record
 	st.Store = &openSessionOnly{}
 	r := svc.HandleButton(context.Background(), wfhClick(ActWFHApprove, "teamadmin", "A"))
+	// The member's panel refreshes: their requests and (now 🏠) session.
+	if strings.Join(got, ",") != "priya:wfh_changed:A,priya:session_changed:A" {
+		t.Errorf("notified %v", got)
+	}
 	if r.EphemeralOnly || !strings.Contains(r.Text, "✅ **Approved** by @barath") || r.Attachments != nil {
 		t.Fatalf("post update: %+v", r)
 	}

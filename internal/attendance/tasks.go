@@ -76,8 +76,9 @@ type BoardSweeper interface {
 	Configured(teamID string) bool
 	// SweepBoard adds open issues in teamID's org assigned to a linked
 	// login (lowercase) and not on the Project; zero since = all open
-	// issues, else only those updated since.
-	SweepBoard(ctx context.Context, teamID string, since time.Time, linked map[string]bool) (int, error)
+	// issues, else only those updated since. It returns, per added issue,
+	// its linked assignees (lowercase logins).
+	SweepBoard(ctx context.Context, teamID string, since time.Time, linked map[string]bool) ([][]string, error)
 }
 
 // boardTimeout bounds adding issues to the board after a command.

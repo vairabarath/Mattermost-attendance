@@ -14,12 +14,11 @@ import {getCurrentTeamId} from 'mattermost-redux/selectors/entities/teams';
 
 import EODSection from './EODSection';
 import Markdown from './Markdown';
-import {REFRESH_EVENT} from './refresh';
+import {ALL, requestRefresh, useRefresh} from './refresh';
 import Tasks from './Tasks';
 
 import './panel.css';
 
-export {REFRESH_EVENT};
 
 const POLL_MS = 5 * 60 * 1000;
 
@@ -78,24 +77,24 @@ export default function Panel() {
         load();
     }, [load]);
 
+    // A change made elsewhere (chat command, another window, a job): the
+    // last reply here is out of date.
+    useRefresh(['session_changed', 'wfh_changed'], () => {
+        setMessage('');
+        setConfirmOut(false);
+        load();
+    });
+
+    // Window shown again, and a slow safety poll: everything reloads.
     useEffect(() => {
-        // A change made elsewhere (chat command, another window, a job):
-        // the last reply here is out of date.
-        const refresh = () => {
-            setMessage('');
-            setConfirmOut(false);
-            load();
-        };
-        const onVisible = () => document.visibilityState === 'visible' && load();
-        window.addEventListener(REFRESH_EVENT, refresh);
+        const onVisible = () => document.visibilityState === 'visible' && requestRefresh(ALL);
         document.addEventListener('visibilitychange', onVisible);
-        const id = window.setInterval(refresh, POLL_MS);
+        const id = window.setInterval(() => requestRefresh(ALL), POLL_MS);
         return () => {
-            window.removeEventListener(REFRESH_EVENT, refresh);
             document.removeEventListener('visibilitychange', onVisible);
             window.clearInterval(id);
         };
-    }, [load]);
+    }, []);
 
     const session = me?.session ?? null;
     const ticking = Boolean(session && !session.on_break);

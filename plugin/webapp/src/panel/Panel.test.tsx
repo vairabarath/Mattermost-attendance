@@ -1,4 +1,4 @@
-import {act as reactAct, render, screen, waitFor} from '@testing-library/react';
+import {act as reactAct, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as api from 'api';
 import type {Me} from 'api';
@@ -6,7 +6,8 @@ import React from 'react';
 import {Provider} from 'react-redux';
 import {createStore} from 'redux';
 
-import Panel, {REFRESH_EVENT} from './Panel';
+import Panel from './Panel';
+import {requestRefresh} from './refresh';
 
 jest.mock('api');
 const mocked = api as jest.Mocked<typeof api>;
@@ -161,12 +162,21 @@ test('live events reload the panel and clear an old reply', async () => {
     expect(await screen.findByText('Not checked in')).toBeInTheDocument();
     await userEvent.click(screen.getByText('▶ Check in'));
     expect(await screen.findByRole('status')).toHaveTextContent('Checked in');
+    expect(screen.getByText('Working')).toBeInTheDocument();
 
-    mocked.fetchMe.mockResolvedValue(me({session: working()}));
+    // Checked out elsewhere (chat, another window): the server says so.
+    mocked.fetchMe.mockResolvedValue(me());
     reactAct(() => {
-        window.dispatchEvent(new Event(REFRESH_EVENT));
+        requestRefresh('session_changed');
     });
-    await waitFor(() => expect(screen.getByText('Working')).toBeInTheDocument());
-    expect(mocked.fetchMe).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText('Not checked in')).toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    // Events for other parts of the panel don't reload the status.
+    const calls = mocked.fetchMe.mock.calls.length;
+    reactAct(() => {
+        requestRefresh('tasks_changed');
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(mocked.fetchMe).toHaveBeenCalledTimes(calls);
 });

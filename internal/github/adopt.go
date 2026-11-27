@@ -143,20 +143,20 @@ type sweepPage struct {
 // in teamID's org that's assigned to a linked login (lowercase keys) and
 // not on the Project. A zero since looks at all open issues; otherwise
 // only issues updated since then (creating or assigning an issue updates it).
-func (t *Tasks) SweepBoard(ctx context.Context, teamID string, since time.Time, linked map[string]bool) (int, error) {
+func (t *Tasks) SweepBoard(ctx context.Context, teamID string, since time.Time, linked map[string]bool) ([][]string, error) {
 	tp, ok := t.teams[teamID]
 	if !ok || !t.adoptable(teamID) || len(linked) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	schema, err := t.Schema(ctx, teamID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	q := fmt.Sprintf("org:%s is:issue is:open archived:false", tp.Org)
 	if !since.IsZero() {
 		q += " updated:>=" + since.UTC().Format("2006-01-02T15:04:05+00:00")
 	}
-	added := 0
+	var added [][]string
 	vars := map[string]any{"q": q, "after": nil}
 	for page := 0; page < maxSweepPages; page++ {
 		var p sweepPage
@@ -173,19 +173,19 @@ func (t *Tasks) SweepBoard(ctx context.Context, teamID string, since time.Time, 
 					onBoard = true
 				}
 			}
-			mine := false
+			var who []string
 			for _, a := range n.Assignees.Nodes {
-				if linked[strings.ToLower(a.Login)] {
-					mine = true
+				if l := strings.ToLower(a.Login); linked[l] {
+					who = append(who, l)
 				}
 			}
-			if onBoard || !mine {
+			if onBoard || len(who) == 0 {
 				continue
 			}
 			if _, err := t.addToBoard(ctx, teamID, schema, n.ID); err != nil {
 				return added, err
 			}
-			added++
+			added = append(added, who)
 			t.log.Info("issue added to board", "team_id", teamID, "issue", n.URL, "by", "sweep")
 		}
 		if !p.Search.PageInfo.HasNextPage {

@@ -7,7 +7,7 @@ import type {TaskItem, TasksState} from 'api';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 
 import Markdown from './Markdown';
-import {REFRESH_EVENT} from './refresh';
+import {useRefresh} from './refresh';
 
 const SHOWN = 5;
 const NOTICE_MS = 6000;
@@ -90,14 +90,8 @@ export default function Tasks({teamId}: {teamId: string}) {
         load();
     }, [load]);
 
-    useEffect(() => {
-        const refresh = () => load();
-        window.addEventListener(REFRESH_EVENT, refresh);
-        return () => {
-            window.removeEventListener(REFRESH_EVENT, refresh);
-            window.clearTimeout(noticeTimer.current);
-        };
-    }, [load]);
+    useRefresh(['tasks_changed'], load);
+    useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
 
     const showNotice = (text: string) => {
         setNotice(text);
