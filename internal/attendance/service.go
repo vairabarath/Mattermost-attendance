@@ -467,6 +467,8 @@ func (s *Service) isAdmin(ctx context.Context, teamID, userID string) bool {
 	return ok
 }
 
+// helpText is the /att help table. Placeholders are CAPITALS and choices are
+// joined with "/": "<...>" and "\\|" render badly in Mattermost tables.
 func helpText(admin bool) string {
 	lines := []string{
 		"#### Attendance commands",
@@ -476,10 +478,10 @@ func helpText(admin bool) string {
 		"| `/att out [summary]` | Check out and see today's total |",
 		"| `/att break` / `/att back` | Start / end a break (not counted as work) |",
 		"| `/att status` | Who is working in this team right now |",
-		"| `/att hours [today\\|week\\|month]` | Your hours, per day and per organization |",
+		"| `/att hours [today/week/month]` | Your hours, per day and per organization |",
 		"| `/att holiday list` | Upcoming holidays |",
 		"| `/att wfh` | Request work from home (opens a form) |",
-		"| `/att wfh list` / `/att wfh cancel <id>` | Your WFH requests / cancel one |",
+		"| `/att wfh list` / `/att wfh cancel ID` | Your WFH requests / cancel one |",
 		"| `/att github` | Show your linked GitHub login (admins link accounts) |",
 		"| `/att tasks` | Your open tasks on this team's GitHub Project; pick what you're working on today |",
 		"| `/att eod` / `/att eod submit` | Your end-of-day report for today / open the report form |",
@@ -492,15 +494,15 @@ func helpText(admin bool) string {
 			"| Command | What it does |",
 			"|---|---|",
 			"| `/att member @user` | Show a member's settings |",
-			"| `/att member @user tracked on\\|off` | Include in reminders and summaries |",
-			"| `/att member @user reminders on\\|off` | 10:30 reminder DM |",
-			"| `/att member @user hours <n>` | Expected hours per day |",
-			"| `/att member @user github <username>\\|none` | Link / unlink a member's GitHub login |",
-			"| `/att holiday add YYYY-MM-DD [all] <name>` | Add a holiday (`all` = every org, system admins) |",
-			"| `/att holiday remove <id>` | Remove a holiday |",
-			"| `/att report @user [week\\|month]` | A member's hours in this team |",
-			"| `/att report team [week\\|month]` | Every member of this team |",
-			"| `/att fix @user YYYY-MM-DD in HH:MM out HH:MM <reason>` | Replace a member's day in this team (audited) |",
+			"| `/att member @user tracked on/off` | Include in reminders and summaries |",
+			"| `/att member @user reminders on/off` | 10:30 reminder DM |",
+			"| `/att member @user hours N` | Expected hours per day |",
+			"| `/att member @user github USERNAME/none` | Link / unlink a member's GitHub login |",
+			"| `/att holiday add YYYY-MM-DD [all] NAME` | Add a holiday (`all` = every org, system admins) |",
+			"| `/att holiday remove ID` | Remove a holiday |",
+			"| `/att report @user [week/month]` | A member's hours in this team |",
+			"| `/att report team [week/month]` | Every member of this team |",
+			"| `/att fix @user YYYY-MM-DD in HH:MM out HH:MM REASON` | Replace a member's day in this team (audited) |",
 			"| `/att export [YYYY-MM]` | CSV of this team's sessions, sent to you by DM |",
 			"| `/att wfh pending` | Pending WFH requests (decide with the buttons in #attendance-admin) |",
 			"| `/att wfh all` | Every WFH request in this team: who's WFH today, last 30 days and upcoming |",

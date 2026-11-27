@@ -310,3 +310,18 @@ func TestHelpListsGitHubCommands(t *testing.T) {
 		t.Errorf("admin help: %s", h)
 	}
 }
+
+// "<...>" and "\|" break Mattermost's table rendering in /att help.
+func TestHelpRendersInTables(t *testing.T) {
+	for _, admin := range []bool{false, true} {
+		h := helpText(admin)
+		if strings.ContainsAny(h, "<>") || strings.Contains(h, `\|`) {
+			t.Errorf("admin=%v: help has <, > or \\|:\n%s", admin, h)
+		}
+		for _, line := range strings.Split(h, "\n") {
+			if strings.HasPrefix(line, "| `") && strings.Count(line, "|") != 3 {
+				t.Errorf("row with %d cells: %s", strings.Count(line, "|")-1, line)
+			}
+		}
+	}
+}
