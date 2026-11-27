@@ -2,7 +2,7 @@
 
 A side panel inside Mattermost for attendance, tasks and end-of-day reports, so people click instead of typing `/att` commands. Built as a **Mattermost plugin** that talks to the existing bot. Slash commands stay (mobile app, power users).
 
-_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 3 done — next: Phase 4 (end-of-day form in the panel)**_
+_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 4 done — next: Phase 5 (live updates everywhere)**_
 
 ---
 
@@ -16,7 +16,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **1** | Bot JSON API + plugin bridge (no UI yet) | ✅ live-tested | 27 Nov · bot `8a99918`, plugin 0.2.0 |
 | **2** | Member panel: status, live timer, check in / break / check out | ✅ live-tested | 27 Nov · plugin 0.3.1 |
 | **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ✅ live-tested | 27 Nov · bot `c63a3e4`, plugin 0.4.0 |
-| **4** | End-of-day report form in the panel | 🟦 built and tested — waiting for your OK to deploy | — |
+| **4** | End-of-day report form in the panel | ✅ live-tested | 27 Nov · bot `1ea84b1`, plugin 0.5.1 |
 | **5** | Live updates (panel refreshes itself) | ⬜ | — |
 | **6** | Hours and WFH in the panel | ⬜ | — |
 | **7** | Admin tab: team today, reports, task check | ⬜ | — |
@@ -242,7 +242,7 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Deploy: bot `c63a3e4`, plugin 0.4.0; uploads back to `false`
 - [x] Live test (barath, Bittrix): panel lists #7 (Blocked, ⚠️ overdue, ✓ Today) and the new test issue #8 (Todo, Pick) ✅ · Pick on #8 → "now In progress", chip → In progress, ✓ Today ✅ · GitHub board #8 = In progress ✅ · `/att tasks` in chat shows the same list ✅
 
-### Phase 4 — End-of-day form 🟦
+### Phase 4 — End-of-day form ✅
 - [x] Bot: the dialog's form-building code split out (`eodFormData`, `eodState`) and shared — the panel shows exactly the dialog's rows; existing EOD tests unchanged and passing
 - [x] Bot: `GET /api/v1/eod` (form for today / yesterday before 11:00; "nothing to report" and "closed" states; pre-filled from a saved report; sync line) and `POST /api/v1/eod` (verifies the **signed form state** like the dialog handler, then runs the dialog's `submitEOD`: same validation, saving, thread post, GitHub sync, blocker alerts)
 - [x] Bot: `eod_changed` live event after a submission and after each GitHub sync
@@ -251,8 +251,9 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Checking out in the panel opens the form (like the dialog after `/att out`); the form never reloads under you while open
 - [x] Tests: bot (form = dialog rows, pre-fill, submit saves + posts + notifies, validation, other user's / team's form refused, signed state required, tampered state refused, unavailable / closed days); panel (21 tests: form parts, choices, sending, field errors, card states, check-out opens the form)
 - [x] Plugin 0.5.0
-- [ ] Deploy (bot + plugin)
-- [ ] Live test (write, edit, sync status, check-out → form)
+- [x] Deploy: bot `1ea84b1`, plugin 0.5.0 → 0.5.1; uploads back to `false`
+- [x] Live test (barath, Bittrix, today's report): card "Sent 8:06 AM · GitHub ✅ synced · Edit report" ✅ · form pre-filled (text, tasks #8 and #7 with "now:", already done #4 #5 #6) ✅ · #8 → Done + extra text → Update report ✅ · card "⏳ syncing…" → "✅ synced" by itself ~5 s later ✅ · GitHub #8 closed, board Done, EOD comment with the new text ✅ · thread reply edited in place (Done #4 #5 #6 #8) ✅ · no errors in the log ✅. Check-out → form not live-tested (you were checked in); covered by tests.
+- [x] Fixed after the live test: the first status button showed the internal value `no_change` instead of "No change" (0.5.1; the tests now use the real value)
 
 ### Phase 5 — Live updates ⬜
 - [ ] Events wired: slash command, buttons, jobs (auto-close), EOD sync, board sweep → panel refreshes
@@ -305,6 +306,7 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 
 ## Changelog
 
+- **27 Nov 2026** — Phase 4 deployed and live-tested: the end-of-day report in the panel (card + form, same code as the dialog). Plugin 0.5.1.
 - **27 Nov 2026** — Phase 3 deployed and live-tested: "Your tasks" in the panel with Pick. Plugin 0.4.0.
 - **27 Nov 2026** — Phase 2 deployed and live-tested: the Attendance panel (app-bar icon, live timer, check in / break / back / check out, live refresh). Plugin 0.3.1.
 - **27 Nov 2026** — Phase 1 deployed and live-tested (bot API + plugin 0.2.0 bridge + live events). Install needed the upload switch briefly; scripted on → install → off.
