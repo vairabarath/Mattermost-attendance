@@ -13,12 +13,12 @@ import type {GlobalState} from '@mattermost/types/store';
 import {getCurrentTeamId} from 'mattermost-redux/selectors/entities/teams';
 
 import Markdown from './Markdown';
+import {REFRESH_EVENT} from './refresh';
+import Tasks from './Tasks';
 
 import './panel.css';
 
-// REFRESH_EVENT is fired on window when the panel should reload (live
-// events from the server, reconnects).
-export const REFRESH_EVENT = 'attendance:refresh';
+export {REFRESH_EVENT};
 
 const POLL_MS = 5 * 60 * 1000;
 
@@ -274,9 +274,11 @@ export default function Panel() {
                 )}
             </section>
 
+            <Tasks teamId={me.team.id}/>
+
             <p className='att-hint'>
-                {'Tasks and the end-of-day report are coming to this panel. Until then: '}
-                <code>{'/att tasks'}</code>{' · '}<code>{'/att eod'}</code>
+                {'The end-of-day report is coming to this panel. Until then: '}
+                <code>{'/att eod'}</code>
             </p>
         </div>
     );

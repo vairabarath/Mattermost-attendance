@@ -145,6 +145,7 @@ func (s *Service) pickClick(ctx context.Context, c Click) (Reply, error) {
 	if err := s.Store.AddTaskPick(ctx, c.UserID, teamID, s.pickDay(ctx, c.UserID, teamID), issueURL); err != nil {
 		return Reply{}, err
 	}
+	s.notify(c.UserID, EventTasks, teamID)
 	if p.Started {
 		return reply(fmt.Sprintf("▶️ **%s** is now **In progress**. It'll be in your end-of-day report.", ref)), nil
 	}

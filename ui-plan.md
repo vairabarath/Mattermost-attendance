@@ -15,7 +15,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **0** | Decisions and groundwork | ✅ | 27 Nov |
 | **1** | Bot JSON API + plugin bridge (no UI yet) | ✅ live-tested | 27 Nov · bot `8a99918`, plugin 0.2.0 |
 | **2** | Member panel: status, live timer, check in / break / check out | ✅ live-tested | 27 Nov · plugin 0.3.1 |
-| **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ⬜ | — |
+| **3** | Tasks in the panel: list, pick today's task, 🆕 badges | 🟦 built and tested — waiting for your OK to deploy | — |
 | **4** | End-of-day report form in the panel | ⬜ | — |
 | **5** | Live updates (panel refreshes itself) | ⬜ | — |
 | **6** | Hours and WFH in the panel | ⬜ | — |
@@ -232,12 +232,15 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Fixed after the live test: an old reply stayed under the new state after a change from chat → cleared on live refresh (0.3.1, live re-checked ✅)
 - [x] Also fixed: a flaky bot test (`TestAPIAuth` depended on map order)
 
-### Phase 3 — Tasks ⬜
-- [ ] Bot: `GET /tasks`, `POST /tasks/pick`
-- [ ] Task list: sort, ⚠️ overdue, 🚧 blocked, 🆕 off-board, links to GitHub, "show all"
-- [ ] Pick button with inline result ("now In progress" / "left as is")
-- [ ] Not linked to GitHub → friendly note
-- [ ] Tests + live test
+### Phase 3 — Tasks 🟦
+- [x] Bot: `GET /api/v1/tasks` (same list as `/att tasks`: sorted, overdue, off-board, picked today; off-board issues added to the board in the background) and `POST /api/v1/tasks/pick` (runs the chat pick menu's code: org check, assignment check on GitHub, records the pick)
+- [x] Bot: a pick (panel or chat menu) sends `tasks_changed` so open panels refresh
+- [x] Panel "Your tasks": status chip (Todo / In progress / In review / Blocked), title linking to GitHub (new tab), priority, due date (⚠️ overdue), 🆕 added to the board, ✓ Today for picked; Pick button per task with the bot's reply; 6 shown + "Show all N"
+- [x] States: loading, not linked (ask an admin), GitHub down (Try again), no open tasks 🎉, hidden in teams without GitHub
+- [x] Tests: bot (list states and flags, pick + notification, non-member, other org refused, endpoint input checks); panel (5 new: list marks, pick, show all, states + retry, pick error + live refresh); titles shown as text, never HTML
+- [x] Plugin 0.4.0
+- [ ] Deploy (bot + plugin)
+- [ ] Live test
 
 ### Phase 4 — End-of-day form ⬜
 - [ ] Bot: `GET /eod`, `POST /eod` (shared validation with the dialog)

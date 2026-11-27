@@ -19,6 +19,15 @@ type fakePanel struct {
 	err                                  error
 }
 
+func (f *fakePanel) PanelTasks(_ context.Context, userID, teamID string) (attendance.TasksState, error) {
+	f.gotUser, f.gotTeam = userID, teamID
+	return attendance.TasksState{Configured: true, Linked: true, Tasks: []attendance.TaskItem{{Number: 7, Title: "Test pick B"}}}, f.err
+}
+func (f *fakePanel) PanelPick(_ context.Context, userID, teamID, url string) (string, error) {
+	f.gotUser, f.gotTeam, f.gotAction, f.gotText = userID, teamID, "pick", url
+	return "▶️ picked", f.err
+}
+
 func (f *fakePanel) Me(_ context.Context, userID, teamID string) (attendance.MeState, error) {
 	f.gotUser, f.gotTeam = userID, teamID
 	return attendance.MeState{UserID: userID, Team: attendance.TeamRef{ID: teamID, Name: "InkYank"}}, f.err
@@ -123,5 +132,34 @@ func TestAPISession(t *testing.T) {
 	fp.err = errors.New("db down: password=hunter2")
 	if rec, out := apiCall(routes, "GET", "/api/v1/me?team="+teamA, testSecret, user, ""); rec.Code != 500 || strings.Contains(out["error"].(string), "hunter2") {
 		t.Errorf("internal error leaked: %d %v", rec.Code, out)
+	}
+}
+
+func TestAPITasks(t *testing.T) {
+	h, _ := newHandler()
+	fp := &fakePanel{}
+	h.Panel, h.PluginSecret = fp, testSecret
+	routes := h.Routes()
+
+	rec, out := apiCall(routes, "GET", "/api/v1/tasks?team="+teamA, testSecret, user, "")
+	if rec.Code != 200 || out["linked"] != true || len(out["tasks"].([]any)) != 1 {
+		t.Fatalf("tasks: %d %v", rec.Code, out)
+	}
+	url := "https://github.com/o/r/issues/7"
+	rec, out = apiCall(routes, "POST", "/api/v1/tasks/pick?team="+teamA, testSecret, user, `{"issue_url":"`+url+`"}`)
+	if rec.Code != 200 || out["message"] != "▶️ picked" || fp.gotAction != "pick" || fp.gotText != url || out["tasks"] == nil {
+		t.Fatalf("pick: %d %v %+v", rec.Code, out, fp)
+	}
+	for name, body := range map[string]string{
+		"no url":   `{}`,
+		"bad json": `{`,
+		"too long": `{"issue_url":"` + strings.Repeat("x", 400) + `"}`,
+	} {
+		if rec, _ := apiCall(routes, "POST", "/api/v1/tasks/pick?team="+teamA, testSecret, user, body); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d", name, rec.Code)
+		}
+	}
+	if rec, _ := apiCall(routes, "GET", "/api/v1/tasks?team="+teamA, "", user, ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("no secret: %d", rec.Code)
 	}
 }

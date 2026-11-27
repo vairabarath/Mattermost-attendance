@@ -16,6 +16,7 @@ var ErrNotTeamMember = errors.New("not a member of this team")
 // Live-update events the plugin pushes to the user's panel.
 const (
 	EventSession = "session_changed"
+	EventTasks   = "tasks_changed"
 )
 
 // TeamRef names a team.

@@ -38,3 +38,28 @@ export const fetchMe = (teamId: string) => doFetch<Me>(`/me${teamQuery(teamId)}`
 
 export const act = (teamId: string, action: SessionAction, text = '') =>
     doFetch<ActResult>(`/session/${action}${teamQuery(teamId)}`, {method: 'post', body: JSON.stringify({text})});
+
+export type TaskItem = {
+    number: number;
+    title: string;
+    url: string;
+    repo: string;
+    status: string;
+    priority?: string;
+    due?: string;
+    overdue: boolean;
+    off_board: boolean;
+    picked: boolean;
+};
+
+export type TasksState = {
+    configured: boolean;
+    linked: boolean;
+    error?: string;
+    tasks: TaskItem[];
+};
+
+export const fetchTasks = (teamId: string) => doFetch<TasksState>(`/tasks${teamQuery(teamId)}`);
+
+export const pickTask = (teamId: string, issueURL: string) =>
+    doFetch<{message: string; tasks: TasksState}>(`/tasks/pick${teamQuery(teamId)}`, {method: 'post', body: JSON.stringify({issue_url: issueURL})});

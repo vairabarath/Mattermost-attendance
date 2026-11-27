@@ -18,6 +18,8 @@ import (
 type PanelAPI interface {
 	Me(ctx context.Context, userID, teamID string) (attendance.MeState, error)
 	Act(ctx context.Context, userID, teamID, action, text string) (string, error)
+	PanelTasks(ctx context.Context, userID, teamID string) (attendance.TasksState, error)
+	PanelPick(ctx context.Context, userID, teamID, issueURL string) (string, error)
 }
 
 // apiRoutes registers /api/v1/* when the plugin secret is set. Only the
@@ -30,6 +32,8 @@ func (h *Handler) apiRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("GET /api/v1/me", h.api(h.apiMe))
 	mux.HandleFunc("POST /api/v1/session/{action}", h.api(h.apiSession))
+	mux.HandleFunc("GET /api/v1/tasks", h.api(h.apiTasks))
+	mux.HandleFunc("POST /api/v1/tasks/pick", h.api(h.apiPick))
 }
 
 type apiRequest struct {
@@ -103,6 +107,39 @@ func (h *Handler) apiSession(w http.ResponseWriter, r *http.Request, a apiReques
 	}
 	h.Log.Info("api ok", "user_id", a.userID, "team_id", a.teamID, "action", action)
 	apiJSON(w, http.StatusOK, map[string]any{"message": msg, "me": me})
+}
+
+func (h *Handler) apiTasks(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	// GitHub can take a while; the bot's own GitHub calls stop at 8 s.
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	st, err := h.Panel.PanelTasks(ctx, a.userID, a.teamID)
+	if h.apiFailed(w, err, "tasks", a) {
+		return
+	}
+	apiJSON(w, http.StatusOK, st)
+}
+
+func (h *Handler) apiPick(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	var body struct {
+		IssueURL string `json:"issue_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IssueURL == "" || len(body.IssueURL) > 300 {
+		apiError(w, http.StatusBadRequest, "Bad request.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	msg, err := h.Panel.PanelPick(ctx, a.userID, a.teamID, strings.TrimSpace(body.IssueURL))
+	if h.apiFailed(w, err, "pick", a) {
+		return
+	}
+	st, err := h.Panel.PanelTasks(ctx, a.userID, a.teamID)
+	if h.apiFailed(w, err, "tasks", a) {
+		return
+	}
+	h.Log.Info("api ok", "user_id", a.userID, "team_id", a.teamID, "action", "pick")
+	apiJSON(w, http.StatusOK, map[string]any{"message": msg, "tasks": st})
 }
 
 // apiFailed writes the error reply for err (if any) and reports whether it did.

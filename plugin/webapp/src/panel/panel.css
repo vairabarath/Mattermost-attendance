@@ -105,3 +105,51 @@
 .att-md--plain { white-space: pre-wrap; }
 .att-today { display: flex; gap: 16px; }
 .att-hint { font-size: 12px; color: rgba(var(--center-channel-color-rgb), 0.56); margin: 0; }
+.att-section { display: flex; flex-direction: column; gap: 8px; }
+.att-h { margin: 4px 0 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.att-count {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: rgba(var(--center-channel-color-rgb), 0.08);
+    color: rgba(var(--center-channel-color-rgb), 0.72);
+}
+.att-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.att-task {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 0;
+    border-top: 1px solid rgba(var(--center-channel-color-rgb), 0.08);
+}
+.att-task:first-child { border-top: none; }
+.att-task-main { flex: 1; min-width: 0; }
+.att-task-title { color: var(--center-channel-color); display: block; overflow-wrap: anywhere; }
+.att-task-title:hover { color: var(--link-color); }
+.att-task-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 12px;
+    color: rgba(var(--center-channel-color-rgb), 0.64);
+}
+.att-overdue { color: var(--error-text); font-weight: 600; }
+.att-new { color: var(--link-color); }
+.att-chip {
+    flex: none;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 16px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    margin-top: 1px;
+    background: rgba(var(--center-channel-color-rgb), 0.08);
+}
+.att-chip--progress { background: rgba(var(--online-indicator-rgb, 6, 214, 160), 0.16); }
+.att-chip--review { background: rgba(var(--button-bg-rgb), 0.16); }
+.att-chip--blocked { background: rgba(var(--error-text-color-rgb, 210, 75, 78), 0.16); color: var(--error-text); }
+.att-btn--small { padding: 2px 10px; font-size: 12px; flex: none; }
+.att-picked { flex: none; font-size: 12px; font-weight: 600; color: var(--online-indicator); white-space: nowrap; }
+.att-note { font-size: 13px; color: rgba(var(--center-channel-color-rgb), 0.72); }
