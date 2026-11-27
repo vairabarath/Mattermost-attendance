@@ -113,6 +113,10 @@ type Service struct {
 	Tasks     TaskSource             // nil: GitHub features off
 	Writer    TaskWriter             // nil: EOD reports aren't written to GitHub
 
+	// Background runs f in the background (default: a goroutine; tests run
+	// it inline).
+	Background func(f func())
+
 	eodQueue chan int64 // see StartEODSync
 	Loc      *time.Location
 	Log      *slog.Logger

@@ -42,6 +42,14 @@ Create a new issue in the team's `operations` repo assigned to M. ✅ Within sec
 | 3.2 | M | Pick the new issue | "▶️ #N … is now **In progress**". On the Project: In progress. |
 | 3.3 | A | On the Project, move another of M's issues to **In review**. M picks it from `/att tasks`. | "📌 … is already **In review**, so it's left as is." Project unchanged. |
 
+### Issues from any repo reach the board
+
+| # | Who | Do | Expect |
+|---|---|---|---|
+| 3.4 | A | Create a new repo in the org and an issue in it **assigned to M**. Don't add it to the Project. M runs `/att tasks` at once. | The issue is listed as *Todo 🆕 added to the board*; within seconds it's on the Project as Todo. |
+| 3.5 | A | Create another issue in that repo assigned to M; nobody runs anything. | On the Project within ~2 minutes; the bot log has `issue added to board … "by":"sweep"`. |
+| 3.6 | A | Create an **unassigned** issue in that repo. | It is **not** added to the Project. |
+
 ## 4. End-of-day report and GitHub sync
 
 | # | Who | Do | Expect |

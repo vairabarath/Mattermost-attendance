@@ -31,6 +31,9 @@ type Tasks struct {
 	// SchemaTTL is how long a Project's field ids are cached; a failed
 	// lookup is retried after SchemaRetry.
 	SchemaTTL, SchemaRetry time.Duration
+	// AddAssigned: open issues in a team's org assigned to a linked
+	// member are added to the team's Project (see adopt.go).
+	AddAssigned bool
 
 	mu      sync.Mutex
 	schemas map[TeamProject]schemaEntry
@@ -166,6 +169,7 @@ const assignedQuery = `query($q: String!, $after: String) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on Issue {
+        id
         number
         title
         url
@@ -187,6 +191,7 @@ const assignedQuery = `query($q: String!, $after: String) {
 // issueFields is the issue selection shared by the search queries.
 const issueFields = `
       ... on Issue {
+        id
         number
         title
         url
@@ -245,12 +250,12 @@ func (t *Tasks) EODTasks(ctx context.Context, teamID, login string, dayStart tim
 	}
 	var open, closed []attendance.Task
 	for _, n := range out.Open.Nodes {
-		if task, ok := taskFromNode(n, schema.ProjectID, false); ok {
+		if task, ok := taskFromNode(n, schema.ProjectID, false, t.adoptable(teamID)); ok {
 			open = append(open, task)
 		}
 	}
 	for _, n := range out.Closed.Nodes {
-		if task, ok := taskFromNode(n, schema.ProjectID, true); ok {
+		if task, ok := taskFromNode(n, schema.ProjectID, true, false); ok {
 			closed = append(closed, task)
 		}
 	}
@@ -271,6 +276,7 @@ type searchPage struct {
 }
 
 type issueNode struct {
+	ID         string    `json:"id"`
 	Number     int       `json:"number"`
 	Title      string    `json:"title"`
 	URL        string    `json:"url"`
@@ -291,7 +297,8 @@ type issueNode struct {
 }
 
 // AssignedTasks returns login's open issues in the team's org that are on
-// the team's Project, excluding Status Done.
+// the team's Project, excluding Status Done — plus, when issues are added
+// to the board (adoptable), the ones not on it yet, marked OffBoard.
 func (t *Tasks) AssignedTasks(ctx context.Context, teamID, login string) ([]attendance.Task, error) {
 	tp, ok := t.teams[teamID]
 	if !ok {
@@ -313,7 +320,7 @@ func (t *Tasks) AssignedTasks(ctx context.Context, teamID, login string) ([]atte
 			return nil, err
 		}
 		for _, n := range p.Search.Nodes {
-			if task, ok := taskFromNode(n, schema.ProjectID, false); ok {
+			if task, ok := taskFromNode(n, schema.ProjectID, false, t.adoptable(teamID)); ok {
 				out = append(out, task)
 			}
 		}
@@ -326,9 +333,10 @@ func (t *Tasks) AssignedTasks(ctx context.Context, teamID, login string) ([]atte
 	return out, nil
 }
 
-// taskFromNode keeps an issue only if it's on projectID (and, unless
-// includeDone, not Done).
-func taskFromNode(n issueNode, projectID string, includeDone bool) (attendance.Task, bool) {
+// taskFromNode keeps an issue if it's on projectID (and, unless
+// includeDone, not Done). With offBoard, an issue not on the Project is
+// kept too, as a Todo task marked OffBoard (to be added to the board).
+func taskFromNode(n issueNode, projectID string, includeDone, offBoard bool) (attendance.Task, bool) {
 	if n.Number == 0 { // a search hit that isn't an issue
 		return attendance.Task{}, false
 	}
@@ -352,7 +360,14 @@ func taskFromNode(n issueNode, projectID string, includeDone bool) (attendance.T
 		if task.Status == attendance.StatusDone && !includeDone {
 			return attendance.Task{}, false
 		}
+		task.NodeID = n.ID
 		return task, true
+	}
+	if offBoard {
+		return attendance.Task{
+			Repo: n.Repository.NameWithOwner, Number: n.Number, Title: n.Title, URL: n.URL, Updated: n.UpdatedAt,
+			Status: attendance.StatusTodo, NodeID: n.ID, OffBoard: true,
+		}, true
 	}
 	return attendance.Task{}, false
 }

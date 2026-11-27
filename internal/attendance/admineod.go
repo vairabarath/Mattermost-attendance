@@ -68,6 +68,7 @@ func (s *Service) memberTasks(ctx context.Context, c Command, who string) (Reply
 	if len(tasks) == 0 {
 		return text(fmt.Sprintf("@%s has no open tasks on the **%s** GitHub Project.", u.Username, s.Teams.TeamName(c.TeamID))), nil
 	}
+	s.addToBoardLater(c.TeamID, tasks)
 	return text(s.taskListText(tasks, "@"+u.Username+"'s open tasks", c.TeamID)), nil
 }
 

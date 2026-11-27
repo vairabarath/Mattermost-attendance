@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -82,6 +83,14 @@ type Jobs struct {
 	EODRetry func(ctx context.Context)
 	GitHub   TeamTaskSource // nil: no task alerts or task columns
 	Links    Linker         // nil: no EOD thread link in the daily summary
+
+	// Board adds assigned issues to the teams' Projects every SweepEvery
+	// (nil or 0: off). See boardsweep.go.
+	Board      BoardSweeper
+	SweepEvery time.Duration
+
+	sweepMu   sync.Mutex
+	lastSweep map[string]time.Time // team id → start of the last good run
 }
 
 // dailyJob is a job that runs once per day at a fixed local time.
@@ -127,6 +136,15 @@ func (j *Jobs) Start(ctx context.Context) func() {
 	// Hourly at :05, every day including weekends and holidays.
 	if _, err := c.AddFunc("5 * * * *", func() { j.AutoClose(ctx, j.Now()) }); err != nil {
 		j.Log.Error("schedule job", "job", "auto_close", "err", err)
+	}
+	if j.Board != nil && j.SweepEvery > 0 {
+		if _, err := c.AddFunc("@every "+j.SweepEvery.String(), func() { j.SweepBoards(ctx, false) }); err != nil {
+			j.Log.Error("schedule job", "job", "board_sweep", "err", err)
+		}
+		if _, err := c.AddFunc("0 3 * * *", func() { j.SweepBoards(ctx, true) }); err != nil {
+			j.Log.Error("schedule job", "job", "board_sweep_full", "err", err)
+		}
+		go j.SweepBoards(ctx, true) // full run at startup
 	}
 	if j.EODRetry != nil {
 		if _, err := c.AddFunc("*/15 * * * *", func() { j.EODRetry(ctx) }); err != nil {

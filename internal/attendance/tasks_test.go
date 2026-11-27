@@ -95,6 +95,16 @@ type fakeTasks struct {
 	tasksErr           error
 	gotLogin           string
 	delay              time.Duration
+	addedToBoard       []string // AddToBoard calls: issue refs
+	boardTeam          string
+}
+
+func (f *fakeTasks) AddToBoard(_ context.Context, team string, tasks []Task) (int, error) {
+	f.boardTeam = team
+	for _, t := range tasks {
+		f.addedToBoard = append(f.addedToBoard, issueRef(t.URL))
+	}
+	return len(tasks), nil
 }
 
 func (f *fakeTasks) Configured(teamID string) bool { return f.configured[teamID] }

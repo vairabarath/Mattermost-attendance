@@ -144,9 +144,20 @@ The bot looks fields and options up **by name** (never hard-coded ids), caches t
 | **Item added to project** | Status: **Todo** | new tasks start in Todo |
 | **Item closed** | Status: **Done** | a `Closes #42` commit or a closed issue finishes the task |
 | **Pull request merged** | Status: **Done** | for repos that use pull requests |
-| **Auto-add to project** | repo `operations`, filter `is:issue is:open` | the bot only lists issues that are **on the Project**; this puts new issues there |
+| **Auto-add to project** | repo `operations`, filter `is:issue is:open` | optional — the bot adds assigned issues itself (below); keep it if you also want unassigned `operations` issues on the board |
 
-The free plan allows one auto-add workflow per Project: issues in other repos are added by hand (Project → *Add item*), or by the bot when a member reports on them. Put non-code work (admin, finance, hiring, client) in an `operations` repo so every task is an issue.
+Put non-code work (admin, finance, hiring, client) in an `operations` repo so every task is an issue.
+
+### One board per organization, fed from every repo
+
+Each team has **one** Project for its whole GitHub org; issues from all its repos go there. Use the Project's **views** for per-repo or per-person tabs (e.g. a view filtered to `repo:<org>/<repo>`, or grouped by *Repository* or *Assignees*).
+
+**The bot adds assigned issues to the board** (`GITHUB_ADD_ASSIGNED_TO_BOARD`, default on). An issue is added to a team's Project when it is an **open issue** in a **non-archived repo of the team's org**, **assigned to a member with a linked GitHub login**, and not on the Project yet. It's added with Status **Todo** (an existing Status is kept). Unassigned issues, closed issues and pull requests are never added.
+
+- **When a member looks — instantly:** `/att in`, `/att tasks` and the EOD form list such issues right away (marked 🆕 *added to the board*) and add them in the background; picking one adds it and moves it to In progress.
+- **In the background — within `GITHUB_BOARD_SWEEP_MINUTES` (default 2):** the bot searches the org for open issues updated since its last run (creating or assigning an issue counts as an update) and adds the ones that qualify. A full pass over all open issues runs at startup and daily at 03:00. One GitHub search per org per run; failures are logged and the next run catches up. `0` turns the sweep off (members' commands still add issues).
+- New repos need no setup for this: the App is installed on *All repositories*, so their issues are picked up as soon as they're assigned.
+- If two teams ever share one org with **different** Projects, nothing is added for them (the bot can't tell which board an issue belongs to) — add those by hand.
 
 **Team repo templates:** [`docs/team-workflow/`](docs/team-workflow/README.md) has a `CLAUDE.md`/`AGENTS.md` with these rules for people and AI agents, a GitHub *Task* issue template, and a `/eod` Claude Code command that drafts the end-of-day text from today's commits — copy them into each project repo.
 
@@ -156,7 +167,7 @@ Repo conventions: one branch per issue named `<number>-description` (e.g. `42-se
 
 The App is installable on any account, so other organizations reuse it:
 
-1. Create the GitHub organization (owner: an admin), invite the team's members, and move or create its repos there (including an `operations` repo).
+1. Create the GitHub organization (owner: an admin), invite the team's members, and move or create its repos there (including an `operations` repo). To bring an existing repo from someone's personal account: repo → Settings → *Transfer ownership* → the org (issues, PRs, branches and history move with it; the old URL redirects). Its open assigned issues land on the board by themselves.
 2. Create an organization **Project**, with the fields and workflows above.
 3. **Install the App** on the new org: App page → *Install App* → the org → *All repositories*.
 4. Add `TEAM_<KEY>_GITHUB_ORG` and `TEAM_<KEY>_GITHUB_PROJECT` to `.env`, then `docker compose up -d --build attendance`. Check the log for `github project ok` for that team.
@@ -234,6 +245,7 @@ Times are in `TIMEZONE`. Daily jobs skip non-workdays (`WORKDAYS`) and holidays 
 | 20:00 | Daily summary in each team's `#attendance`: who worked (hours, 🏢/🏠, **EOD ✅/❌/⏳, tasks Done, Blocked**), a link to the day's EOD thread, who is still checked in, who worked for another org instead, who didn't check in. |
 | 18:00 | Pending WFH requests covering tomorrow, per team, in `#attendance-admin` (only if there are any). |
 | Mon 09:00 | Weekly report for the previous Mon–Sun in each team's `#attendance-admin` (same table as `/att report team`), plus a **Tasks and end-of-day reports** table: EOD reports sent ÷ days worked, issues completed (assigned to them, closed that week, in the team's org) and overdue now. Issue columns only for members with a linked GitHub login. Runs even if Monday is a holiday. |
+| Every 2 min (`GITHUB_BOARD_SWEEP_MINUTES`), plus a full pass at startup and 03:00 | Add open issues assigned to linked members to their team's Project (see *One board per organization*). Runs every day. |
 | Hourly (:05), every day | Auto-close sessions open longer than `MAX_SESSION_HOURS`: check-out is set so net time = the member's expected hours (never later than now). DM to the member, flag in `#attendance-admin`, audit log, custom status restored. |
 
 **Task check (10:00).** Only issues assigned to tracked members with a **linked GitHub login** count; issues of other GitHub users are ignored.

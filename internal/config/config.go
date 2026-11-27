@@ -45,6 +45,12 @@ type Config struct {
 	GitHubAppID          int64
 	GitHubPrivateKeyPath string
 	GitHubAPIURL         string // default https://api.github.com
+	// GitHubAddAssigned: open issues in a team's org assigned to a linked
+	// member are added to the team's Project (default on).
+	GitHubAddAssigned bool
+	// GitHubSweepMinutes: how often the board sweep runs (0 = off; the
+	// commands still add issues when members look).
+	GitHubSweepMinutes int
 }
 
 // GitHubEnabled reports whether the GitHub App is configured.
@@ -176,6 +182,19 @@ func load(getenv func(string) string) (*Config, error) {
 		}
 		cfg.GitHubAppID = n
 		cfg.GitHubPrivateKeyPath = req("GITHUB_APP_PRIVATE_KEY_PATH")
+	}
+	switch v := strings.ToLower(def("GITHUB_ADD_ASSIGNED_TO_BOARD", "true")); v {
+	case "true", "1", "yes", "on":
+		cfg.GitHubAddAssigned = true
+	case "false", "0", "no", "off":
+	default:
+		errs = append(errs, fmt.Errorf("GITHUB_ADD_ASSIGNED_TO_BOARD %q: use true or false", v))
+	}
+	sweep := def("GITHUB_BOARD_SWEEP_MINUTES", "2")
+	if n, err := strconv.Atoi(sweep); err != nil || n < 0 || n > 60 {
+		errs = append(errs, fmt.Errorf("GITHUB_BOARD_SWEEP_MINUTES %q: must be a whole number 0–60 (0 = off)", sweep))
+	} else {
+		cfg.GitHubSweepMinutes = n
 	}
 	if cfg.GitHubAppID == 0 {
 		for _, id := range cfg.TeamOrder {

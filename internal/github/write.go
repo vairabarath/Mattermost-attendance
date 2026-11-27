@@ -223,8 +223,9 @@ func (t *Tasks) setStatus(ctx context.Context, teamID string, schema *Schema, it
 
 // StartTask implements attendance.TaskWriter: a member picked the issue as
 // today's work. It moves it to In progress unless it's already In progress,
-// In review or Blocked (a pick never moves work backwards). Issues not on
-// the team's Project are refused (ErrNotOnProject).
+// In review or Blocked (a pick never moves work backwards). An issue not on
+// the team's Project is added first if issues may be added to the board
+// (adoptable), and refused otherwise (ErrNotOnProject).
 func (t *Tasks) StartTask(ctx context.Context, teamID, login, issueURL string) (attendance.Pick, error) {
 	tp, ok := t.teams[teamID]
 	if !ok {
@@ -244,13 +245,20 @@ func (t *Tasks) StartTask(ctx context.Context, teamID, login, issueURL string) (
 	}
 	itemID, current := projectStatus(is, schema.ProjectID)
 	p := attendance.Pick{Number: is.Number, Title: is.Title, Status: current}
-	// The menu only offers issues on the team's Project: anything else is a
-	// tampered value (e.g. another team's issue in a shared org).
-	if itemID == "" {
-		return p, attendance.ErrNotOnProject
-	}
 	if is.State != "OPEN" {
 		return p, attendance.ErrIssueClosed
+	}
+	// Not on the Project: only issues that qualify for the board (assigned
+	// to this member — checked above — in a team whose org has this one
+	// Project) are added; anything else is refused.
+	if itemID == "" {
+		if !t.adoptable(teamID) {
+			return p, attendance.ErrNotOnProject
+		}
+		if itemID, err = t.projectItem(ctx, tp, schema, is); err != nil {
+			return p, err
+		}
+		t.log.Info("issue added to board", "team_id", teamID, "issue", issueURL, "by", "pick")
 	}
 	switch current {
 	case attendance.StatusInProgress, attendance.StatusInReview, attendance.StatusBlocked:

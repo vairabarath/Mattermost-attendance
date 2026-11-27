@@ -64,6 +64,7 @@ func (s *Service) startOfDayTasks(ctx context.Context, r Reply, userID, teamID s
 		r.Text += "\n\n_Couldn't load your tasks right now — try `/att tasks`._"
 		return r
 	}
+	s.addToBoardLater(teamID, tasks)
 	r.Text += "\n\n" + s.taskListText(tasks, "Your tasks", teamID)
 	r.Attachments = append(r.Attachments, s.pickMenu(userID, teamID, tasks)...)
 	return r

@@ -83,11 +83,16 @@ func run(log *slog.Logger) error {
 		Log:       log,
 		Now:       time.Now,
 	}
-	var teamTasks attendance.TeamTaskSource // stays a nil interface when GitHub is off
+	// Interfaces stay nil (not typed nils) when GitHub is off.
+	var teamTasks attendance.TeamTaskSource
+	var board attendance.BoardSweeper
 	if tasks := newTaskSource(cfg, log); tasks != nil {
 		svc.Tasks = tasks
 		svc.Writer = tasks
 		teamTasks = tasks
+		if cfg.GitHubAddAssigned && cfg.GitHubSweepMinutes > 0 {
+			board = tasks
+		}
 		go tasks.Warm(ctx)
 	}
 	svc.StartEODSync(ctx)
@@ -107,6 +112,10 @@ func run(log *slog.Logger) error {
 		EODRetry:   svc.RetryEODSyncs,
 		GitHub:     teamTasks,
 		Links:      mm,
+	}
+	if board != nil {
+		jobs.Board = board
+		jobs.SweepEvery = time.Duration(cfg.GitHubSweepMinutes) * time.Minute
 	}
 	stopJobs := jobs.Start(ctx)
 	defer stopJobs()
@@ -163,7 +172,9 @@ func newTaskSource(cfg *config.Config, log *slog.Logger) *github.Tasks {
 		}
 	}
 	app := github.NewApp(cfg.GitHubAPIURL, cfg.GitHubAppID, key, glog)
-	return github.NewTasks(app, teams, glog)
+	tasks := github.NewTasks(app, teams, glog)
+	tasks.AddAssigned = cfg.GitHubAddAssigned
+	return tasks
 }
 
 // connectWithRetry waits for Postgres to accept connections (up to ~60s).

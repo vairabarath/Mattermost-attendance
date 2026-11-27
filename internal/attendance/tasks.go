@@ -39,6 +39,11 @@ type Task struct {
 	Updated  time.Time
 	// Assignees: GitHub logins (set by TeamTaskSource.ProjectTasks only).
 	Assignees []string
+	// NodeID is GitHub's id for the issue (used to add it to the board).
+	NodeID string
+	// OffBoard: assigned to the member but not on the team's Project yet;
+	// shown as Todo and added to the board in the background.
+	OffBoard bool
 }
 
 // Overdue reports whether the task's due date is before today (YYYY-MM-DD).
@@ -60,6 +65,47 @@ type TaskSource interface {
 	// (as AssignedTasks) and the issues assigned to them on that Project
 	// that were closed during the local day starting at dayStart.
 	EODTasks(ctx context.Context, teamID, login string, dayStart time.Time) (open, closedToday []Task, err error)
+	// AddToBoard adds the OffBoard tasks (as returned above) to teamID's
+	// Project and returns how many were added.
+	AddToBoard(ctx context.Context, teamID string, tasks []Task) (int, error)
+}
+
+// BoardSweeper adds assigned issues to a team's Project in the background
+// (implemented by internal/github).
+type BoardSweeper interface {
+	Configured(teamID string) bool
+	// SweepBoard adds open issues in teamID's org assigned to a linked
+	// login (lowercase) and not on the Project; zero since = all open
+	// issues, else only those updated since.
+	SweepBoard(ctx context.Context, teamID string, since time.Time, linked map[string]bool) (int, error)
+}
+
+// boardTimeout bounds adding issues to the board after a command.
+const boardTimeout = 30 * time.Second
+
+// addToBoardLater adds tasks' OffBoard issues to the team's Project in the
+// background, so commands and forms never wait for it.
+func (s *Service) addToBoardLater(teamID string, tasks []Task) {
+	var off []Task
+	for _, t := range tasks {
+		if t.OffBoard {
+			off = append(off, t)
+		}
+	}
+	if len(off) == 0 || s.Tasks == nil {
+		return
+	}
+	run := s.Background
+	if run == nil {
+		run = func(f func()) { go f() }
+	}
+	run(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), boardTimeout)
+		defer cancel()
+		if _, err := s.Tasks.AddToBoard(ctx, teamID, off); err != nil {
+			s.Log.Warn("github: adding issues to the board failed; the sweep will retry", "team_id", teamID, "err", err)
+		}
+	})
 }
 
 var priorityRank = map[string]int{"High": 0, "Medium": 1, "Low": 2}
@@ -120,6 +166,9 @@ func RenderTaskList(tasks []Task, today string, loc *time.Location) string {
 		status := t.Status
 		if status == "" {
 			status = "No status"
+		}
+		if t.OffBoard {
+			status += " 🆕 added to the board"
 		}
 		parts = append(parts, status)
 		if t.Priority != "" {
@@ -271,6 +320,7 @@ func (s *Service) tasks(ctx context.Context, c Command, args string) (Reply, err
 		s.Log.Warn("github tasks failed", "team_id", c.TeamID, "user_id", c.UserID, "err", err)
 		return text("⚠️ Couldn't load your tasks from GitHub right now. Please try again in a minute."), nil
 	}
+	s.addToBoardLater(c.TeamID, tasks)
 	msg := s.taskListText(tasks, "Your open tasks", c.TeamID)
 	return Reply{Text: msg, Attachments: s.pickMenu(c.UserID, c.TeamID, tasks)}, nil
 }
