@@ -37,3 +37,31 @@ jobs:
         run: go test -race -count=1 ./...
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  plugin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: plugin/go.mod
+          cache-dependency-path: plugin/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: plugin/.nvmrc
+          cache: npm
+          cache-dependency-path: plugin/webapp/package-lock.json
+      - name: build (manifest, server, webapp, bundle)
+        run: make dist
+      - name: server tests
+        run: cd server && go vet ./... && go test -race -count=1 ./...
+      - name: webapp types and tests
+        run: cd webapp && npx tsc --noEmit && npm run test-ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: attendance-plugin
+          path: plugin/dist/*.tar.gz
+          retention-days: 30

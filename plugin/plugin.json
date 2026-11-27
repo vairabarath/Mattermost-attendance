@@ -1,0 +1,38 @@
+{
+    "id": "com.bittrix.attendance",
+    "name": "Attendance",
+    "description": "Attendance, tasks and end-of-day reports in a side panel. Talks to the attendance bot; the /att commands keep working.",
+    "version": "0.1.0",
+    "icon_path": "assets/icon.svg",
+    "min_server_version": "11.7.0",
+    "server": {
+        "executables": {
+            "linux-amd64": "server/dist/plugin-linux-amd64",
+            "linux-arm64": "server/dist/plugin-linux-arm64"
+        }
+    },
+    "webapp": {
+        "bundle_path": "webapp/dist/main.js"
+    },
+    "settings_schema": {
+        "header": "Connects this plugin to the attendance bot. Both must use the same secret.",
+        "footer": "",
+        "settings": [
+            {
+                "key": "BotURL",
+                "display_name": "Bot URL:",
+                "type": "text",
+                "help_text": "Where the plugin reaches the attendance bot on the internal Docker network.",
+                "default": "http://attendance:8080"
+            },
+            {
+                "key": "Secret",
+                "display_name": "Shared secret:",
+                "type": "text",
+                "help_text": "The same value as PLUGIN_SECRET in the bot's .env. Requests between the plugin and the bot are refused without it.",
+                "default": "",
+                "secret": true
+            }
+        ]
+    }
+}
