@@ -155,7 +155,10 @@
 .att-task-dot--review { background: var(--button-bg); }
 .att-task-dot--blocked { background: var(--error-text); }
 .att-task-main { flex: 1; min-width: 0; }
-.att-task-title {
+/* Prefixed with .att-panel so Mattermost's own link styles don't win. */
+.att-panel a.att-task-title,
+.att-panel a.att-task-title:link,
+.att-panel a.att-task-title:visited {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -164,7 +167,8 @@
     font-weight: 600;
     text-decoration: none;
 }
-.att-task-title:hover, .att-task-title:focus-visible { color: var(--center-channel-color); text-decoration: underline; }
+.att-panel a.att-task-title:hover,
+.att-panel a.att-task-title:focus-visible { color: var(--center-channel-color); text-decoration: underline; }
 .att-task-meta {
     display: flex;
     flex-wrap: wrap;
