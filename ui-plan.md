@@ -33,7 +33,7 @@ Each phase: build → tests pass → your OK → push → deploy → live test �
 |---|---|---|---|
 | D1 | Desktop app + browser first; phones keep slash commands (the mobile app doesn't show plugin panels)? | Yes | ✅ agreed (27 Nov) |
 | D2 | Build the **member panel** first, then the admin tab? | Member panel first | ✅ agreed (27 Nov) |
-| D3 | How to install our plugin: **A** keep plugin uploads on · **B** turn uploads on only while installing/upgrading, then off again (plugin keeps running) · **C** never on, install from the server terminal (`mmctl` local mode) | **B** | ✅ agreed (27 Nov): **B** |
+| D3 | How to install our plugin: **A** keep plugin uploads on · **B** turn uploads on only while installing/upgrading, then off again (plugin keeps running) · **C** never on, install from the server terminal (`mmctl` local mode) | **C** | ✅ agreed (27 Nov): **C** — local mode was already on, so no setting change; installs and upgrades are part of Claude's deploy; the secret is copied server-side and never shown |
 | D4 | Plugin id and name | `com.bittrix.attendance`, "Attendance" | proposed |
 | D5 | Code location | `plugin/` folder in this repo | proposed |
 | D6 | Keep slash commands | Yes, unchanged | ✅ agreed |
@@ -201,8 +201,8 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 | 0.3 | `plugin/` from the official starter template; `plugin.json` (id, name, min server version, settings: Bot URL, Secret); builds with `make dist` | Claude | ✅ `com.bittrix.attendance` 0.1.0 builds (27 MB bundle; Linux amd64 + arm64); sample features removed; health endpoint (login required); Go + Jest tests pass |
 | 0.4 | CI: build + test the plugin | Claude | 🟦 job added (build, Go tests, types, Jest, bundle as a download) — runs on the next push |
 | 0.5 | Shared secret generated into the bot's `.env` on the VPS (never printed) | Claude | ⬜ (Phase 1) |
-| 0.6 | Plugin uploads on → upload plugin → uploads off (System Console) | **You** | ⬜ (end of Phase 1) |
-| 0.7 | Paste the shared secret into the plugin's settings page | **You** | ⬜ (end of Phase 1) |
+| 0.6 | Install the plugin with `mmctl --local` (option C; no setting change) | Claude | ⬜ (end of Phase 1) |
+| 0.7 | Put the shared secret into the plugin's settings with `mmctl --local config set`, read from the bot's `.env` | Claude | ⬜ (end of Phase 1) |
 
 ### Phase 1 — Bot API + plugin bridge ⬜
 - [ ] Bot: `/api/v1` router, secret check, user + team membership check, JSON errors
@@ -270,7 +270,7 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 ## Testing and rollout
 
 - **Every phase:** Go tests (bot API, plugin server) + Jest/RTL (panel) + CI green → your OK → deploy → live test in the desktop app → tracker updated.
-- **Deploy:** bot as today (`git pull`, `docker compose up -d --build attendance`); plugin: upload the new `.tar.gz` in System Console → Plugins (or with `mmctl plugin add`) — no Mattermost restart.
+- **Deploy:** bot as today (`git pull`, `docker compose up -d --build attendance`); plugin (option C): build the bundle, copy it into the `mattermost` container, `mmctl --local plugin add --force` + `plugin enable` — no Mattermost restart, no setting change.
 - **Rollback:** disable the plugin in System Console; slash commands keep working, nothing is lost (all data lives in the bot).
 
 ## Risks
