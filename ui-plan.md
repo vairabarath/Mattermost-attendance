@@ -2,7 +2,7 @@
 
 A side panel inside Mattermost for attendance, tasks and end-of-day reports, so people click instead of typing `/att` commands. Built as a **Mattermost plugin** that talks to the existing bot. Slash commands stay (mobile app, power users).
 
-_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 1 done — next: Phase 2 (member panel)**_
+_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 2 done — next: Phase 3 (tasks in the panel)**_
 
 ---
 
@@ -14,7 +14,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 |---|---|---|---|
 | **0** | Decisions and groundwork | ✅ | 27 Nov |
 | **1** | Bot JSON API + plugin bridge (no UI yet) | ✅ live-tested | 27 Nov · bot `8a99918`, plugin 0.2.0 |
-| **2** | Member panel: status, live timer, check in / break / check out | 🟦 built and tested — waiting for your OK to deploy | — |
+| **2** | Member panel: status, live timer, check in / break / check out | ✅ live-tested | 27 Nov · plugin 0.3.1 |
 | **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ⬜ | — |
 | **4** | End-of-day report form in the panel | ⬜ | — |
 | **5** | Live updates (panel refreshes itself) | ⬜ | — |
@@ -216,7 +216,7 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Deploy: secret into `.env`, bot, plugin (0.5–0.7); plugin uploads back to `false`
 - [x] Live test (barath, Bittrix, desktop app session): health ✅ 0.2.0 · `/me` ✅ · unknown team → 400 ✅ · forged identity headers ignored ✅ · `..` escape → 404 ✅ · POST without CSRF token or XHR header → 401 ✅ · session cookie not readable by scripts ✅ · check in / check out through the plugin → same messages as `/att` ✅ · `session_changed` reached the browser's websocket within a second of each ✅ · no errors in the bot log ✅
 
-### Phase 2 — Member panel: status and session 🟦
+### Phase 2 — Member panel: status and session ✅
 - [x] App-bar icon (public/icon.svg) toggles the panel in the right-hand side
 - [x] Panel follows the Mattermost team you're looking at (switch teams in Mattermost's sidebar); a non-attendance team (e.g. HQ) says so. *An in-panel team switcher isn't needed for now.*
 - [x] Status card: Working / On break / Not checked in, live timer (ticks locally from the bot's `net_seconds`, re-syncs on every load), since-time, 🏢/🏠, break length; "in <other team>" when checked in elsewhere
@@ -227,8 +227,10 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Bot: `/me` also returns seconds (`net_seconds`, `today_*_seconds`)
 - [x] Tests: 10 Jest/RTL tests (states, timer, break, confirm, errors, live refresh); lint clean (also in CI)
 - [x] Plugin 0.3.0; Linux amd64 only (the server is x86_64) → bundle 15 MB
-- [ ] Deploy (bot + plugin)
-- [ ] Live test with you in the desktop app
+- [x] Deploy: bot `bf004bb`, plugin 0.3.0 → 0.3.1; uploads back to `false` after each install
+- [x] Live test (barath, Bittrix): icon in the app bar ✅ · panel opens, "Not checked in" ✅ · Check in from the panel → Working, timer ticks (0:00:01 → 0:00:04) ✅ · Break → paused (0:00:06 → 0:00:06), ▶ Back shown ✅ · Back ✅ · `/att out` typed in chat → open panel switched to "Not checked in" within 3 s ✅
+- [x] Fixed after the live test: an old reply stayed under the new state after a change from chat → cleared on live refresh (0.3.1, live re-checked ✅)
+- [x] Also fixed: a flaky bot test (`TestAPIAuth` depended on map order)
 
 ### Phase 3 — Tasks ⬜
 - [ ] Bot: `GET /tasks`, `POST /tasks/pick`
@@ -294,6 +296,7 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 
 ## Changelog
 
+- **27 Nov 2026** — Phase 2 deployed and live-tested: the Attendance panel (app-bar icon, live timer, check in / break / back / check out, live refresh). Plugin 0.3.1.
 - **27 Nov 2026** — Phase 1 deployed and live-tested (bot API + plugin 0.2.0 bridge + live events). Install needed the upload switch briefly; scripted on → install → off.
 - **27 Nov 2026** — Phase 0: decisions D1–D3 agreed (D3 = B); Mattermost checked (local mode already on); `plugin/` skeleton builds; CI job added.
 - **27 Nov 2026** — Plan created. Waiting on D1–D3.
