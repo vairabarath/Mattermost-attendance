@@ -129,10 +129,13 @@ test('errors: not an attendance team, retry; action failures shown', async () =>
     expect(screen.getByText('Not checked in')).toBeInTheDocument();
 });
 
-test('live events reload the panel', async () => {
+test('live events reload the panel and clear an old reply', async () => {
     mocked.fetchMe.mockResolvedValue(me());
+    mocked.act.mockResolvedValue({message: '✅ Checked in', me: me({session: working()})});
     renderPanel();
     expect(await screen.findByText('Not checked in')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('▶ Check in'));
+    expect(await screen.findByRole('status')).toHaveTextContent('Checked in');
 
     mocked.fetchMe.mockResolvedValue(me({session: working()}));
     reactAct(() => {
@@ -140,4 +143,5 @@ test('live events reload the panel', async () => {
     });
     await waitFor(() => expect(screen.getByText('Working')).toBeInTheDocument());
     expect(mocked.fetchMe).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });

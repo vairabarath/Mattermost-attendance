@@ -76,7 +76,13 @@ export default function Panel() {
     }, [load]);
 
     useEffect(() => {
-        const refresh = () => load();
+        // A change made elsewhere (chat command, another window, a job):
+        // the last reply here is out of date.
+        const refresh = () => {
+            setMessage('');
+            setConfirmOut(false);
+            load();
+        };
         const onVisible = () => document.visibilityState === 'visible' && load();
         window.addEventListener(REFRESH_EVENT, refresh);
         document.addEventListener('visibilitychange', onVisible);
