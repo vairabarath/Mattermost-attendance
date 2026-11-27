@@ -2,7 +2,7 @@
 
 A side panel inside Mattermost for attendance, tasks and end-of-day reports, so people click instead of typing `/att` commands. Built as a **Mattermost plugin** that talks to the existing bot. Slash commands stay (mobile app, power users).
 
-_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 0 in progress**_
+_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 1 done — next: Phase 2 (member panel)**_
 
 ---
 
@@ -12,8 +12,8 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 
 | Phase | What | Status | Deployed |
 |---|---|---|---|
-| **0** | Decisions and groundwork | ✅ (install steps 0.5–0.7 run with Phase 1's deploy) | — |
-| **1** | Bot JSON API + plugin bridge (no UI yet) | 🟦 built and tested — waiting for your OK to deploy | — |
+| **0** | Decisions and groundwork | ✅ | 27 Nov |
+| **1** | Bot JSON API + plugin bridge (no UI yet) | ✅ live-tested | 27 Nov · bot `8a99918`, plugin 0.2.0 |
 | **2** | Member panel: status, live timer, check in / break / check out | ⬜ | — |
 | **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ⬜ | — |
 | **4** | End-of-day report form in the panel | ⬜ | — |
@@ -33,6 +33,7 @@ Each phase: build → tests pass → your OK → push → deploy → live test �
 |---|---|---|---|
 | D1 | Desktop app + browser first; phones keep slash commands (the mobile app doesn't show plugin panels)? | Yes | ✅ agreed (27 Nov) |
 | D2 | Build the **member panel** first, then the admin tab? | Member panel first | ✅ agreed (27 Nov) |
+| D3b | `mmctl plugin add` needs the upload switch: turn it on only during each install and back off (scripted) | Yes | ✅ agreed (27 Nov) |
 | D3 | How to install our plugin: **A** keep plugin uploads on · **B** turn uploads on only while installing/upgrading, then off again (plugin keeps running) · **C** never on, install from the server terminal (`mmctl` local mode) | **C** | ✅ agreed (27 Nov): **C** — local mode was already on, so no setting change; installs and upgrades are part of Claude's deploy; the secret is copied server-side and never shown |
 | D4 | Plugin id and name | `com.bittrix.attendance`, "Attendance" | proposed |
 | D5 | Code location | `plugin/` folder in this repo | proposed |
@@ -200,9 +201,9 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 | 0.2 | Read-only check: how Mattermost's plugin settings are set (console or locked by env var) | Claude | ✅ plugins on · uploads off · signature not required · not locked by env · **local mode already on** (`mmctl --local` works) → option C possible with no setting change; to confirm with you at install time |
 | 0.3 | `plugin/` from the official starter template; `plugin.json` (id, name, min server version, settings: Bot URL, Secret); builds with `make dist` | Claude | ✅ `com.bittrix.attendance` 0.1.0 builds (27 MB bundle; Linux amd64 + arm64); sample features removed; health endpoint (login required); Go + Jest tests pass |
 | 0.4 | CI: build + test the plugin | Claude | ✅ both CI jobs green |
-| 0.5 | Shared secret generated into the bot's `.env` on the VPS (never printed) | Claude | ⬜ (Phase 1) |
-| 0.6 | Install the plugin with `mmctl --local` (option C; no setting change) | Claude | ⬜ (end of Phase 1) |
-| 0.7 | Put the shared secret into the plugin's settings with `mmctl --local config set`, read from the bot's `.env` | Claude | ⬜ (end of Phase 1) |
+| 0.5 | Shared secret generated into the bot's `.env` on the VPS (never printed) | Claude | ✅ 64 chars, `.env` stays 600, backup taken |
+| 0.6 | Install the plugin with `mmctl --local` | Claude | ✅ 0.2.0 enabled. `mmctl plugin add` needs plugin uploads on even in local mode, so (with your OK) the script turns them on only for the install and always back off — verified `false` afterwards |
+| 0.7 | Shared secret + Bot URL into the plugin's settings with `mmctl --local config patch`, read from the bot's `.env` | Claude | ✅ never shown; GitHub/Jira/Boards settings verified unchanged; backup in `~/.mattermost-plugin-settings.*.json` |
 
 ### Phase 1 — Bot API + plugin bridge 🟦
 - [x] Bot: `/api/v1` router, secret check (constant time), user id + configured team + Mattermost team membership checks, JSON errors (no internal details leak); off without `PLUGIN_SECRET`
@@ -212,8 +213,8 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Bot: notifications after check-in, break, back, check-out and auto-close (background queue, never blocks)
 - [x] Tests: bot API auth and errors, panel state/actions/notifications, notifier, config; plugin proxy, refusals and notify
 - [x] Deploy tooling: `plugin/Dockerfile` (builds the bundle on the server), `scripts/deploy-plugin.sh` (install with `mmctl --local`), `scripts/plugin-config.sh` (secret + Bot URL into the plugin's settings; other plugins kept and checked; tested against a worst-case fake)
-- [ ] Deploy: secret into `.env`, bot, plugin (0.5–0.7)
-- [ ] Live test: `/api/v1/health` and `/api/v1/me` through the plugin from your logged-in browser; check in via the API → `/att status` agrees; notify reaches the browser
+- [x] Deploy: secret into `.env`, bot, plugin (0.5–0.7); plugin uploads back to `false`
+- [x] Live test (barath, Bittrix, desktop app session): health ✅ 0.2.0 · `/me` ✅ · unknown team → 400 ✅ · forged identity headers ignored ✅ · `..` escape → 404 ✅ · POST without CSRF token or XHR header → 401 ✅ · session cookie not readable by scripts ✅ · check in / check out through the plugin → same messages as `/att` ✅ · `session_changed` reached the browser's websocket within a second of each ✅ · no errors in the bot log ✅
 
 ### Phase 2 — Member panel: status and session ⬜
 - [ ] App-bar icon + right-hand panel; team switcher
@@ -287,5 +288,6 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 
 ## Changelog
 
+- **27 Nov 2026** — Phase 1 deployed and live-tested (bot API + plugin 0.2.0 bridge + live events). Install needed the upload switch briefly; scripted on → install → off.
 - **27 Nov 2026** — Phase 0: decisions D1–D3 agreed (D3 = B); Mattermost checked (local mode already on); `plugin/` skeleton builds; CI job added.
 - **27 Nov 2026** — Plan created. Waiting on D1–D3.
