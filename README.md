@@ -239,7 +239,7 @@ A side panel inside Mattermost (desktop app and browser) — work in progress, s
 **Setup on the server** (from the repo root, as root):
 
 1. Add a secret to `.env` once: `grep -q '^PLUGIN_SECRET=.' .env || echo "PLUGIN_SECRET=$(openssl rand -hex 32)" >> .env`, then `docker compose up -d --build attendance` (the log says `panel api on`).
-2. `scripts/deploy-plugin.sh` — builds the plugin in Docker (no Go/Node needed on the server), copies the Bot URL and the secret into the plugin's settings with `mmctl --local` (other plugins' settings are kept and checked; a backup goes to `~/.mattermost-plugin-settings.*.json`), then installs and enables it. Needs Mattermost **local mode** (`MM_SERVICESETTINGS_ENABLELOCALMODE=true`); no System Console upload, no setting changes. Run it again to upgrade.
+2. `scripts/deploy-plugin.sh` — builds the plugin in Docker (no Go/Node needed on the server), copies the Bot URL and the secret into the plugin's settings with `mmctl --local` (other plugins' settings are kept and checked; a backup goes to `~/.mattermost-plugin-settings.*.json`), then installs and enables it. Needs Mattermost **local mode** (`MM_SERVICESETTINGS_ENABLELOCALMODE=true`). `mmctl plugin add` needs plugin uploads on, so the script switches them on only for the install and always back off (also on errors), then prints the setting. Run it again to upgrade.
 
 Without `PLUGIN_SECRET` the bot's `/api/v1` doesn't exist. The API is only reachable on the internal Docker network and refuses requests without the secret, a valid user id and a configured team the user belongs to.
 
