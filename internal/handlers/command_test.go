@@ -21,6 +21,7 @@ type fakeCommander struct {
 	got        *attendance.Command
 	gotButton  string
 	buttonUser string
+	selected   string
 	gotDialog  *attendance.DialogSubmit
 }
 
@@ -30,7 +31,7 @@ func (f *fakeCommander) Handle(_ context.Context, c attendance.Command) attendan
 }
 
 func (f *fakeCommander) HandleButton(_ context.Context, c attendance.Click) attendance.Reply {
-	f.gotButton, f.buttonUser = c.Action, c.UserID
+	f.gotButton, f.buttonUser, f.selected = c.Action, c.UserID, c.Selected
 	return attendance.Reply{Text: "clicked"}
 }
 
@@ -219,5 +220,23 @@ func TestTeamButtonWithoutUserIsRouted(t *testing.T) {
 	noScope := mattermost.NewSigner("test-key", time.Hour).Sign(map[string]string{"a": "out"})
 	if _, out := click(h.Routes(), map[string]any{"user_id": user, "context": noScope}); fc.gotButton != "" || out["ephemeral_text"] == nil {
 		t.Fatal("button with neither user nor team accepted")
+	}
+}
+
+// A select menu's choice arrives inside the signed context; it's passed on
+// separately and doesn't break the signature check.
+func TestSelectMenuChoice(t *testing.T) {
+	h, fc := newHandler()
+	ctx := mattermost.NewSigner("test-key", time.Hour).Sign(map[string]string{"a": "pick", "u": user, "t": "A"})
+	ctx["selected_option"] = "https://github.com/o/r/issues/5"
+	_, out := click(h.Routes(), map[string]any{"user_id": user, "context": ctx})
+	if fc.gotButton != "pick" || fc.selected != "https://github.com/o/r/issues/5" {
+		t.Fatalf("select not routed: %+v %v", fc, out)
+	}
+	// The signed fields still can't be changed.
+	fc.gotButton = ""
+	ctx["a"] = "out"
+	if _, out := click(h.Routes(), map[string]any{"user_id": user, "context": ctx}); fc.gotButton != "" {
+		t.Fatalf("forged select accepted: %v", out)
 	}
 }

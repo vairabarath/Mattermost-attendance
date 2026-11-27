@@ -15,13 +15,25 @@ type Attachment struct {
 	Actions []Action `json:"actions,omitempty"`
 }
 
-// Action is an interactive button.
+// Action is an interactive button, or a select menu when Type is "select".
 type Action struct {
-	ID          string      `json:"id"` // alphanumeric only
-	Name        string      `json:"name"`
-	Style       string      `json:"style,omitempty"` // default, primary, danger, ...
-	Integration Integration `json:"integration"`
+	ID          string         `json:"id"` // alphanumeric only
+	Name        string         `json:"name"`
+	Type        string         `json:"type,omitempty"`  // "button" (default) or "select"
+	Style       string         `json:"style,omitempty"` // default, primary, danger, ...
+	Options     []ActionOption `json:"options,omitempty"`
+	Integration Integration    `json:"integration"`
 }
+
+// ActionOption is one entry of a select menu. Mattermost adds the chosen
+// value to the click's context as "selected_option".
+type ActionOption struct {
+	Text  string `json:"text"`
+	Value string `json:"value"`
+}
+
+// SelectedOption is the context key Mattermost adds for a select menu.
+const SelectedOption = "selected_option"
 
 // Integration tells Mattermost where to POST a button click.
 type Integration struct {

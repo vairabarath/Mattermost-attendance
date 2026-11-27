@@ -64,7 +64,7 @@ Teams not listed in `TEAMS` (e.g. HQ) get a friendly "attendance isn't used here
 | `/att wfh list` | Your WFH requests in this team and their status. |
 | `/att wfh cancel <id>` | Cancel a pending request, or an approved one that hasn't started. |
 | `/att github` | Show your linked GitHub login. Linking is done by an admin (below), so nobody can claim someone else's GitHub account. |
-| `/att tasks` | Your open issues on this team's GitHub Project (not Done): overdue first, then priority, then due date. ⚠️ overdue, 🚧 blocked. |
+| `/att tasks` | Your open issues on this team's GitHub Project (not Done): overdue first, then priority, then due date. ⚠️ overdue, 🚧 blocked. With a **Pick today's task** menu (see [Start of day](#start-of-day)). |
 | `/att eod` | Your end-of-day report for today in this team. |
 | `/att eod submit` | Open the end-of-day form: for today, or for yesterday until 11:00. |
 | `/att help` | Command list (admin commands shown to admins only). |
@@ -134,13 +134,24 @@ Each team can be linked to a GitHub organization and an organization **Project (
 
 The bot looks fields and options up **by name** (never hard-coded ids), caches them for 6 hours, and logs a clear error if one is missing. Enable the Project's built-in workflows **Item closed → Status: Done** (and **Pull request merged → Done** for repos that use PRs). Put non-code work in an `operations` repo so every task is an issue.
 
+Also turn on **Auto-add to project** (repo `operations`, filter `is:issue is:open`) so new issues land on the board — the bot only lists issues that are on the team's Project. The free plan allows one auto-add workflow per Project; issues in other repos are added by hand (or by the bot when a member reports on them).
+
 Repo conventions: one branch per issue named `<number>-description` (e.g. `42-session-timeout`); the final commit on the default branch says `Closes #42`.
+
+## Start of day
+
+After a successful `/att in`, a member with a linked GitHub login also sees their open tasks on the team's Project (the `/att tasks` list) and a **Pick today's task** menu. Picking a task:
+
+- moves it to **In progress** on the Project (adding it to the Project if needed) — unless it's already In progress, **In review** or **Blocked**, which are left as they are (a pick never moves work backwards);
+- records the pick for the day of the member's open session, so the task gets its own dropdown in that day's end-of-day form, even if it was Todo.
+
+Members can pick several tasks, one at a time, and pick more later from `/att tasks`. The bot checks on GitHub that the issue is assigned to the member and open before changing anything. GitHub never slows down or blocks a check-in: the task list waits at most 3 s, and on any error the check-in reply says *Couldn't load your tasks right now — try `/att tasks`.* Members without a linked login see check-in as before.
 
 ## End-of-day reports
 
 Checking out (`/att out` or the 🔴 button) opens an **End of day report** form for the team and day of the session:
 
-- one dropdown per relevant task (*No change / In progress / In review / Blocked / Done*): tasks currently In progress, In review or Blocked on the team's Project, at most 8 (the most recently updated; the form says how many were left out);
+- one dropdown per relevant task (*No change / In progress / In review / Blocked / Done*): tasks picked that day plus tasks currently In progress, In review or Blocked on the team's Project, at most 8 (the most recently updated; the form says how many were left out);
 - issues assigned to you that were **closed today** (usually by a `Closes #n` commit) are listed as "✅ Already done today" and recorded as Done;
 - **Other tasks I finished** (multi-select): the member's other open tasks, Todo included (up to 25), so a finished task that had no dropdown can be reported; each one picked is recorded as Done;
 - **What I did today** (required, at least 10 characters), **Blockers** and **Plan for tomorrow** (optional).
@@ -230,7 +241,7 @@ Backups live on the same VPS, so they protect against mistakes and database corr
 Reviewed at the end of phase 6:
 
 - **Slash commands:** per-team token, constant-time compare; a token is only valid with its own team id; HQ and unknown teams are refused.
-- **Buttons and dialogs:** HMAC-SHA256 over all fields (`HMAC_KEY`), with expiry (48 h; WFH buttons 60 days via a signed `exp`). Personal buttons and every dialog are bound to the member they were made for; WFH buttons are bound to a team and the clicker's admin rights are checked.
+- **Buttons and dialogs:** HMAC-SHA256 over all fields (`HMAC_KEY`), with expiry (48 h; WFH buttons 60 days via a signed `exp`). Personal buttons and every dialog are bound to the member they were made for; a select menu's chosen value (added by Mattermost outside the signature) is treated as untrusted input — a picked task must be an issue URL in the team's org and assigned to the member on GitHub; WFH buttons are bound to a team and the clicker's admin rights are checked.
 - **Admin rights** are always looked up via the Mattermost API (system admin, or team admin via `scheme_admin`/`team_admin`), cached 60 s, never taken from the request.
 - **No published ports:** the bot is only on Docker networks (`mattermost_default` with Mattermost and its Postgres, and its own network with `attendance-db`). The bot's database has no network path from Mattermost's network.
 - **SQL:** all values are bound parameters; the only concatenation is of constant column lists.

@@ -57,6 +57,10 @@ type TaskWriter interface {
 	// Done), adds or removes the "blocked" label, and posts comment.
 	// closed reports that this call closed the issue (also on a later error).
 	ApplyEODStatus(ctx context.Context, teamID, login, issueURL, status, comment string) (closed bool, err error)
+	// StartTask is a pick: it checks the issue is assigned to login (else
+	// ErrNotAssigned) and open (else ErrIssueClosed), and moves it to In
+	// progress unless it's In progress, In review or Blocked already.
+	StartTask(ctx context.Context, teamID, login, issueURL string) (Pick, error)
 	// Activity is login's activity in teamID's org on the local day
 	// starting at dayStart.
 	Activity(ctx context.Context, teamID, login string, dayStart time.Time) (*Activity, error)

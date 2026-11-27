@@ -90,6 +90,7 @@ type Click struct {
 	UserID    string            // who clicked
 	Fields    map[string]string // verified context
 	TriggerID string
+	Selected  string // a select menu's chosen value: untrusted, not signed
 }
 
 // DialogSubmit is a verified dialog submission.

@@ -18,15 +18,24 @@ const issueURL = "https://github.com/inkyank-org/app/issues/42"
 
 // issueResource is a recorded `resource(url:)` answer for #42.
 func issueResource(assignee, state string, labels []string, onProject bool) string {
+	return issueResourceStatus(assignee, state, labels, onProject, "")
+}
+
+// issueResourceStatus is issueResource with a Status on the team's Project.
+func issueResourceStatus(assignee, state string, labels []string, onProject bool, status string) string {
 	var ls []string
 	for _, l := range labels {
 		ls = append(ls, fmt.Sprintf(`{"name":%q}`, l))
 	}
 	items := `[{"id":"PVTI_other","project":{"id":"PVT_other"}}]`
 	if onProject {
-		items = `[{"id":"PVTI_42","project":{"id":"PVT_kwDOinkyank"}}]`
+		st := "null"
+		if status != "" {
+			st = fmt.Sprintf(`{"name":%q}`, status)
+		}
+		items = `[{"id":"PVTI_42","project":{"id":"PVT_kwDOinkyank"},"status":` + st + `}]`
 	}
-	return fmt.Sprintf(`{"data":{"resource":{"id":"I_42","number":42,"state":%q,
+	return fmt.Sprintf(`{"data":{"resource":{"id":"I_42","number":42,"title":"Session timeout","state":%q,
  "repository":{"name":"app","owner":{"login":"inkyank-org"}},
  "assignees":{"nodes":[{"login":%q}]},"labels":{"nodes":[%s]},
  "projectItems":{"nodes":%s}}}}`, state, assignee, strings.Join(ls, ","), items)
@@ -220,5 +229,54 @@ func TestRateLimitLow(t *testing.T) {
 		if got := rateLimitLow(c.remaining, c.limit); got != c.want {
 			t.Errorf("rateLimitLow(%d, %q) = %v", c.remaining, c.limit, got)
 		}
+	}
+}
+
+func TestStartTask(t *testing.T) {
+	f, srv := newFake(t)
+	wf := &writeFake{resource: issueResourceStatus("Jana-Dev", "OPEN", nil, true, "Todo")}
+	f.extra = wf.handler(t)
+	tasks := newTestTasks(t, srv)
+	ctx := context.Background()
+
+	// Todo → In progress; no comment, no labels.
+	p, err := tasks.StartTask(ctx, "A", "jana-dev", issueURL)
+	if err != nil || !p.Started || p.Status != "In progress" || p.Number != 42 || p.Title != "Session timeout" {
+		t.Fatalf("pick: %+v %v", p, err)
+	}
+	if strings.Join(wf.mutations, ";") != "status item=PVTI_42 field=PVTSSF_status option=47fc9ee4" || len(wf.rest) != 0 {
+		t.Errorf("writes: %v %v", wf.mutations, wf.rest)
+	}
+
+	// Already In review or Blocked: left as is.
+	for _, st := range []string{"In review", "Blocked", "In progress"} {
+		wf.mutations = nil
+		wf.resource = issueResourceStatus("Jana-Dev", "OPEN", nil, true, st)
+		p, err := tasks.StartTask(ctx, "A", "Jana-Dev", issueURL)
+		if err != nil || p.Started || p.Status != st || len(wf.mutations) != 0 {
+			t.Errorf("%s: %+v %v %v", st, p, err, wf.mutations)
+		}
+	}
+
+	// Not on the Project yet: added, then In progress.
+	wf.mutations = nil
+	wf.resource = issueResource("Jana-Dev", "OPEN", nil, false)
+	if p, err := tasks.StartTask(ctx, "A", "Jana-Dev", issueURL); err != nil || !p.Started ||
+		strings.Join(wf.mutations, ";") != "add-to-project;status item=PVTI_new field=PVTSSF_status option=47fc9ee4" {
+		t.Errorf("not on project: %+v %v %v", p, err, wf.mutations)
+	}
+
+	// Someone else's issue, or a closed one: nothing written.
+	wf.mutations = nil
+	wf.resource = issueResourceStatus("someone-else", "OPEN", nil, true, "Todo")
+	if _, err := tasks.StartTask(ctx, "A", "Jana-Dev", issueURL); !errors.Is(err, attendance.ErrNotAssigned) {
+		t.Errorf("want ErrNotAssigned, got %v", err)
+	}
+	wf.resource = issueResourceStatus("Jana-Dev", "CLOSED", nil, true, "Done")
+	if _, err := tasks.StartTask(ctx, "A", "Jana-Dev", issueURL); !errors.Is(err, attendance.ErrIssueClosed) {
+		t.Errorf("want ErrIssueClosed, got %v", err)
+	}
+	if len(wf.mutations) != 0 {
+		t.Errorf("refused picks wrote: %v", wf.mutations)
 	}
 }

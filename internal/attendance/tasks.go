@@ -263,7 +263,8 @@ func (s *Service) tasks(ctx context.Context, c Command, args string) (Reply, err
 		s.Log.Warn("github tasks failed", "team_id", c.TeamID, "user_id", c.UserID, "err", err)
 		return text("⚠️ Couldn't load your tasks from GitHub right now. Please try again in a minute."), nil
 	}
-	return text(s.taskListText(tasks, "Your open tasks", c.TeamID)), nil
+	msg := s.taskListText(tasks, "Your open tasks", c.TeamID)
+	return Reply{Text: msg, Attachments: s.pickMenu(c.UserID, c.TeamID, tasks)}, nil
 }
 
 // taskListText is the heading plus the sorted list, or a "no tasks" line.

@@ -56,6 +56,9 @@ type fakeWriter struct {
 	actErr    error
 	act       *Activity
 	actCalled int
+
+	started             []string // StartTask calls
+	closedURL, inReview string
 }
 
 func (w *fakeWriter) ApplyEODStatus(_ context.Context, _, login, url, status, comment string) (bool, error) {
@@ -70,6 +73,22 @@ func (w *fakeWriter) ApplyEODStatus(_ context.Context, _, login, url, status, co
 	w.applied = append(w.applied, issueRef(url)+"="+status)
 	w.comments = append(w.comments, comment)
 	return status == StatusDone, nil
+}
+func (w *fakeWriter) StartTask(_ context.Context, _, login, url string) (Pick, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.started = append(w.started, issueRef(url))
+	switch {
+	case url == w.notMine:
+		return Pick{}, ErrNotAssigned
+	case url == w.failURL:
+		return Pick{}, errors.New("github 502")
+	case url == w.closedURL:
+		return Pick{Number: issueNum(url), Title: "Old"}, ErrIssueClosed
+	case url == w.inReview:
+		return Pick{Number: issueNum(url), Title: "Review me", Status: StatusInReview}, nil
+	}
+	return Pick{Number: issueNum(url), Title: "Task *" + issueRef(url) + "*", Status: StatusInProgress, Started: true}, nil
 }
 func (w *fakeWriter) Activity(context.Context, string, string, time.Time) (*Activity, error) {
 	w.actCalled++

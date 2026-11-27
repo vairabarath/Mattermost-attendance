@@ -38,6 +38,7 @@ type Store interface {
 	WFHStore
 	EODStore
 	EODSyncStore
+	PickStore
 	// MemberRefreshedAt reports when a member's profile was last synced.
 	MemberRefreshedAt(ctx context.Context, userID string) (t time.Time, found bool, err error)
 	UpsertMember(ctx context.Context, userID, username, displayName string) error
@@ -208,6 +209,8 @@ func (s *Service) HandleButton(ctx context.Context, c Click) Reply {
 		r, err = s.checkOut(ctx, userID, "", c.TriggerID)
 	case ActEOD:
 		r, err = s.eodClick(ctx, c)
+	case ActPick:
+		r, err = s.pickClick(ctx, c)
 	default:
 		return text("Unknown button.")
 	}
@@ -267,7 +270,7 @@ func (s *Service) checkIn(ctx context.Context, c Command, note string) (Reply, e
 	if note != "" {
 		msg += "\n> " + note
 	}
-	return s.withButtons(msg, c.UserID, false), nil
+	return s.startOfDayTasks(ctx, s.withButtons(msg, c.UserID, false), c.UserID, c.TeamID), nil
 }
 
 // checkOut closes the open session and opens the end-of-day form for the
@@ -477,7 +480,7 @@ func helpText(admin bool) string {
 		"| `/att wfh` | Request work from home (opens a form) |",
 		"| `/att wfh list` / `/att wfh cancel <id>` | Your WFH requests / cancel one |",
 		"| `/att github` | Show your linked GitHub login (admins link accounts) |",
-		"| `/att tasks` | Your open tasks on this team's GitHub Project |",
+		"| `/att tasks` | Your open tasks on this team's GitHub Project; pick what you're working on today |",
 		"| `/att eod` / `/att eod submit` | Your end-of-day report for today / open the report form |",
 		"| `/att help` | This list |",
 	}

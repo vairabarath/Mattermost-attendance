@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,38 @@ type eodStore struct {
 	reports  map[string]*EODReport // user/team/day
 	threads  map[string]string
 	nextID   int64
+	picks    map[string][]string // user/team/day → urls
+}
+
+func (f *eodStore) AddTaskPick(_ context.Context, u, t, d, url string) error {
+	if f.picks == nil {
+		f.picks = map[string][]string{}
+	}
+	k := u + "/" + t + "/" + d
+	if !slices.Contains(f.picks[k], url) {
+		f.picks[k] = append(f.picks[k], url)
+	}
+	return nil
+}
+func (f *eodStore) TaskPicks(_ context.Context, u, t, d string) ([]string, error) {
+	return f.picks[u+"/"+t+"/"+d], nil
+}
+func (f *eodStore) OpenSession(context.Context, string) (*Session, error) {
+	if n := len(f.sessions); n > 0 && f.sessions[n-1].CheckOut == nil {
+		s := f.sessions[n-1]
+		return &s, nil
+	}
+	return nil, nil
+}
+func (f *eodStore) WFHApprovedOn(context.Context, string, string, string) (bool, error) {
+	return false, nil
+}
+func (f *eodStore) InsertSession(_ context.Context, _, team string, in time.Time, mode, _ string) (int64, error) {
+	if s, _ := f.OpenSession(context.Background(), ""); s != nil {
+		return 0, ErrAlreadyCheckedIn
+	}
+	f.sessions = append(f.sessions, Session{ID: int64(len(f.sessions) + 1), TeamID: team, CheckIn: in, WorkMode: mode})
+	return int64(len(f.sessions)), nil
 }
 
 func (f *eodStore) MemberRefreshedAt(context.Context, string) (time.Time, bool, error) {

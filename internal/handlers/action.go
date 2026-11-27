@@ -22,6 +22,11 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	// A select menu's choice is added by Mattermost to the signed context:
+	// take it out before checking the signature. The service treats it as
+	// untrusted input.
+	selected := req.Context[mattermost.SelectedOption]
+	delete(req.Context, mattermost.SelectedOption)
 	fields, err := h.Verifier.Verify(req.Context)
 	if err != nil {
 		h.Log.Warn("button rejected: bad signature", "user_id", req.UserID)
@@ -38,7 +43,7 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	reply := h.Commander.HandleButton(ctx, attendance.Click{
-		Action: fields["a"], UserID: req.UserID, Fields: fields, TriggerID: req.TriggerID,
+		Action: fields["a"], UserID: req.UserID, Fields: fields, TriggerID: req.TriggerID, Selected: selected,
 	})
 	if reply.EphemeralOnly {
 		writeJSON(w, mattermost.ActionResponse{EphemeralText: reply.Text})

@@ -215,7 +215,7 @@ func (s *Service) openEODForm(ctx context.Context, userID, teamID, day, triggerI
 			s.Log.Warn("eod: github tasks failed; form without tasks", "team_id", teamID, "user_id", userID, "err", err)
 			note = "_Couldn't load your GitHub tasks right now; you can still submit the report._"
 		} else {
-			selects, done, omitted = RelevantIssues(open, closed, nil)
+			selects, done, omitted = RelevantIssues(open, closed, s.pickedIssues(ctx, userID, teamID, day))
 			others = otherTasks(open, selects, done, s.Now().In(s.Loc).Format(DayFormat))
 		}
 	}

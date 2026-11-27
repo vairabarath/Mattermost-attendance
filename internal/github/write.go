@@ -26,7 +26,14 @@ const issueQuery = `query($url: URI!) {
       repository { name owner { login } }
       assignees(first: 20) { nodes { login } }
       labels(first: 50) { nodes { name } }
-      projectItems(first: 20) { nodes { id project { id } } }
+      title
+      projectItems(first: 20) {
+        nodes {
+          id
+          project { id }
+          status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+        }
+      }
     }
   }
 }`
@@ -34,6 +41,7 @@ const issueQuery = `query($url: URI!) {
 type issueInfo struct {
 	ID         string `json:"id"`
 	Number     int    `json:"number"`
+	Title      string `json:"title"`
 	State      string `json:"state"`
 	Repository struct {
 		Name  string `json:"name"`
@@ -57,6 +65,9 @@ type issueInfo struct {
 			Project struct {
 				ID string `json:"id"`
 			} `json:"project"`
+			Status *struct {
+				Name string `json:"name"`
+			} `json:"status"`
 		} `json:"nodes"`
 	} `json:"projectItems"`
 }
@@ -82,57 +93,16 @@ func (t *Tasks) ApplyEODStatus(ctx context.Context, teamID, login, issueURL, sta
 		return false, fmt.Errorf("unknown status %q", status)
 	}
 
-	var out struct {
-		Resource *issueInfo `json:"resource"`
-	}
-	if err := t.app.GraphQL(ctx, tp.Org, issueQuery, map[string]any{"url": issueURL}, &out, false); err != nil {
+	is, err := t.assignedIssue(ctx, tp, login, issueURL)
+	if err != nil {
 		return false, err
 	}
-	is := out.Resource
-	if is == nil || is.ID == "" {
-		return false, fmt.Errorf("issue %s not found", issueURL)
+	itemID, err := t.projectItem(ctx, tp, schema, is)
+	if err != nil {
+		return false, err
 	}
-	// Only the member's own issues in the team's org (spec §11).
-	assigned := false
-	for _, a := range is.Assignees.Nodes {
-		if strings.EqualFold(a.Login, login) {
-			assigned = true
-		}
-	}
-	if !assigned || !strings.EqualFold(is.Repository.Owner.Login, tp.Org) {
-		return false, attendance.ErrNotAssigned
-	}
-
-	itemID := ""
-	for _, it := range is.ProjectItems.Nodes {
-		if it.Project.ID == schema.ProjectID {
-			itemID = it.ID
-		}
-	}
-	if itemID == "" {
-		var add struct {
-			AddProjectV2ItemByID struct {
-				Item struct {
-					ID string `json:"id"`
-				} `json:"item"`
-			} `json:"addProjectV2ItemById"`
-		}
-		if err := t.app.GraphQL(ctx, tp.Org, `mutation($p: ID!, $c: ID!) {
-  addProjectV2ItemById(input: {projectId: $p, contentId: $c}) { item { id } }
-}`, map[string]any{"p": schema.ProjectID, "c": is.ID}, &add, true); err != nil {
-			return false, fmt.Errorf("add to project: %w", err)
-		}
-		itemID = add.AddProjectV2ItemByID.Item.ID
-	}
-
-	if err := t.app.GraphQL(ctx, tp.Org, `mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) {
-  updateProjectV2ItemFieldValue(input: {projectId: $p, itemId: $i, fieldId: $f, value: {singleSelectOptionId: $o}}) { projectV2Item { id } }
-}`, map[string]any{"p": schema.ProjectID, "i": itemID, "f": schema.Status.ID, "o": optionID}, nil, true); err != nil {
-		var ge *GraphQLError
-		if errors.As(err, &ge) { // stale field/option ids: look them up again next time
-			t.InvalidateSchema(teamID)
-		}
-		return false, fmt.Errorf("set status: %w", err)
+	if err := t.setStatus(ctx, teamID, schema, itemID, optionID); err != nil {
+		return false, err
 	}
 
 	hasBlocked := false
@@ -175,6 +145,120 @@ func (t *Tasks) ApplyEODStatus(ctx context.Context, teamID, login, issueURL, sta
 		return closed, apiErr(path, r)
 	}
 	return closed, nil
+}
+
+// assignedIssue loads the issue and refuses it (ErrNotAssigned) unless it's
+// assigned to login and in the team's org (spec §11).
+func (t *Tasks) assignedIssue(ctx context.Context, tp TeamProject, login, issueURL string) (*issueInfo, error) {
+	var out struct {
+		Resource *issueInfo `json:"resource"`
+	}
+	if err := t.app.GraphQL(ctx, tp.Org, issueQuery, map[string]any{"url": issueURL}, &out, false); err != nil {
+		return nil, err
+	}
+	is := out.Resource
+	if is == nil || is.ID == "" {
+		return nil, fmt.Errorf("issue %s not found", issueURL)
+	}
+	assigned := false
+	for _, a := range is.Assignees.Nodes {
+		if strings.EqualFold(a.Login, login) {
+			assigned = true
+		}
+	}
+	if !assigned || !strings.EqualFold(is.Repository.Owner.Login, tp.Org) {
+		return nil, attendance.ErrNotAssigned
+	}
+	return is, nil
+}
+
+// projectStatus is the issue's item and Status on the team's Project, both
+// empty when the issue isn't on it.
+func projectStatus(is *issueInfo, projectID string) (itemID, status string) {
+	for _, it := range is.ProjectItems.Nodes {
+		if it.Project.ID == projectID {
+			if it.Status != nil {
+				status = it.Status.Name
+			}
+			return it.ID, status
+		}
+	}
+	return "", ""
+}
+
+// projectItem returns the issue's item on the team's Project, adding the
+// issue to the Project first if needed.
+func (t *Tasks) projectItem(ctx context.Context, tp TeamProject, schema *Schema, is *issueInfo) (string, error) {
+	if itemID, _ := projectStatus(is, schema.ProjectID); itemID != "" {
+		return itemID, nil
+	}
+	var add struct {
+		AddProjectV2ItemByID struct {
+			Item struct {
+				ID string `json:"id"`
+			} `json:"item"`
+		} `json:"addProjectV2ItemById"`
+	}
+	if err := t.app.GraphQL(ctx, tp.Org, `mutation($p: ID!, $c: ID!) {
+  addProjectV2ItemById(input: {projectId: $p, contentId: $c}) { item { id } }
+}`, map[string]any{"p": schema.ProjectID, "c": is.ID}, &add, true); err != nil {
+		return "", fmt.Errorf("add to project: %w", err)
+	}
+	return add.AddProjectV2ItemByID.Item.ID, nil
+}
+
+// setStatus sets the item's Status option.
+func (t *Tasks) setStatus(ctx context.Context, teamID string, schema *Schema, itemID, optionID string) error {
+	if err := t.app.GraphQL(ctx, t.teams[teamID].Org, `mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) {
+  updateProjectV2ItemFieldValue(input: {projectId: $p, itemId: $i, fieldId: $f, value: {singleSelectOptionId: $o}}) { projectV2Item { id } }
+}`, map[string]any{"p": schema.ProjectID, "i": itemID, "f": schema.Status.ID, "o": optionID}, nil, true); err != nil {
+		var ge *GraphQLError
+		if errors.As(err, &ge) { // stale field/option ids: look them up again next time
+			t.InvalidateSchema(teamID)
+		}
+		return fmt.Errorf("set status: %w", err)
+	}
+	return nil
+}
+
+// StartTask implements attendance.TaskWriter: a member picked the issue as
+// today's work. It moves it to In progress unless it's already In progress,
+// In review or Blocked (a pick never moves work backwards).
+func (t *Tasks) StartTask(ctx context.Context, teamID, login, issueURL string) (attendance.Pick, error) {
+	tp, ok := t.teams[teamID]
+	if !ok {
+		return attendance.Pick{}, attendance.ErrGitHubNotSetUp
+	}
+	schema, err := t.Schema(ctx, teamID)
+	if err != nil {
+		return attendance.Pick{}, err
+	}
+	optionID, ok := schema.Status.Options[attendance.StatusInProgress]
+	if !ok {
+		return attendance.Pick{}, attendance.ErrGitHubNotSetUp
+	}
+	is, err := t.assignedIssue(ctx, tp, login, issueURL)
+	if err != nil {
+		return attendance.Pick{}, err
+	}
+	_, current := projectStatus(is, schema.ProjectID)
+	p := attendance.Pick{Number: is.Number, Title: is.Title, Status: current}
+	if is.State != "OPEN" {
+		return p, attendance.ErrIssueClosed
+	}
+	switch current {
+	case attendance.StatusInProgress, attendance.StatusInReview, attendance.StatusBlocked:
+		return p, nil
+	}
+	itemID, err := t.projectItem(ctx, tp, schema, is)
+	if err != nil {
+		return p, err
+	}
+	if err := t.setStatus(ctx, teamID, schema, itemID, optionID); err != nil {
+		return p, err
+	}
+	p.Status, p.Started = attendance.StatusInProgress, true
+	return p, nil
 }
 
 // addBlockedLabel creates the repo's "blocked" label if needed, then adds it.

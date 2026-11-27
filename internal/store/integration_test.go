@@ -608,3 +608,23 @@ func TestIntegrationEODSyncLease(t *testing.T) {
 		t.Errorf("alert created %d times", calls)
 	}
 }
+
+func TestIntegrationTaskPicks(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	const i1, i2 = "https://github.com/o/r/issues/1", "https://github.com/o/r/issues/2"
+	for _, url := range []string{i2, i1, i2} { // picking twice is harmless
+		if err := s.AddTaskPick(ctx, u1, teamA, "2026-11-27", url); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.TaskPicks(ctx, u1, teamA, "2026-11-27")
+	if err != nil || len(got) != 2 || got[0] != i2 || got[1] != i1 {
+		t.Errorf("picks: %v %v", got, err)
+	}
+	// Per member, team and day.
+	for _, q := range [][3]string{{u2, teamA, "2026-11-27"}, {u1, teamB, "2026-11-27"}, {u1, teamA, "2026-11-28"}} {
+		if got, _ := s.TaskPicks(ctx, q[0], q[1], q[2]); len(got) != 0 {
+			t.Errorf("%v: %v", q, got)
+		}
+	}
+}
