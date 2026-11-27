@@ -19,7 +19,6 @@ import Tasks from './Tasks';
 
 import './panel.css';
 
-
 const POLL_MS = 5 * 60 * 1000;
 
 // useNow ticks every second while active.
