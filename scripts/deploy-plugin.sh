@@ -14,7 +14,10 @@ BUNDLE=$(ls plugin/dist/$ID-*.tar.gz)
 echo "built $(basename "$BUNDLE")"
 
 scripts/plugin-config.sh
-docker cp "$BUNDLE" "$MM:/tmp/$ID.tar.gz"
-docker exec "$MM" mmctl --local plugin add --force "/tmp/$ID.tar.gz"
+# /tmp in the Mattermost container is a tmpfs, which docker cp can't write
+# into; the data directory is a regular mount.
+DEST=/mattermost/data/$ID-upload.tar.gz
+docker cp "$BUNDLE" "$MM:$DEST"
+docker exec "$MM" mmctl --local plugin add --force "$DEST"
 docker exec "$MM" mmctl --local plugin enable "$ID"
 docker exec "$MM" mmctl --local plugin list | grep -E "$ID|Listing" || true
