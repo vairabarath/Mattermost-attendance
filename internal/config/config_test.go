@@ -111,6 +111,14 @@ func TestGitHubConfig(t *testing.T) {
 	if cfg.Teams["teamsee"].GitHubOrg != "" {
 		t.Error("team without GITHUB_ORG should have none")
 	}
+	if cfg.PluginSecret != "" {
+		t.Error("plugin secret should be empty by default")
+	}
+	m["PLUGIN_SECRET"] = "0123456789abcdef0123456789abcdef"
+	if c, err := load(env(m)); err != nil || c.PluginSecret != m["PLUGIN_SECRET"] {
+		t.Errorf("plugin secret: %v", err)
+	}
+	delete(m, "PLUGIN_SECRET")
 	if !cfg.GitHubAddAssigned || cfg.GitHubSweepMinutes != 2 {
 		t.Errorf("board defaults: add=%v sweep=%d", cfg.GitHubAddAssigned, cfg.GitHubSweepMinutes)
 	}
@@ -125,6 +133,7 @@ func TestGitHubConfig(t *testing.T) {
 		{"GITHUB_APP_ID": "abc", "GITHUB_APP_PRIVATE_KEY_PATH": "/k"},                               // bad id
 		{"GITHUB_APP_ID": "1", "GITHUB_APP_PRIVATE_KEY_PATH": "/k", "TEAM_INKYANK_GITHUB_ORG": "x"}, // no project
 		{"GITHUB_BOARD_SWEEP_MINUTES": "90"},
+		{"PLUGIN_SECRET": "too-short"},
 		{"GITHUB_ADD_ASSIGNED_TO_BOARD": "maybe"},
 	}
 	for _, extra := range bad {

@@ -82,7 +82,9 @@ type Jobs struct {
 	// EODRetry retries GitHub syncs of end-of-day reports (every 15 min).
 	EODRetry func(ctx context.Context)
 	GitHub   TeamTaskSource // nil: no task alerts or task columns
-	Links    Linker         // nil: no EOD thread link in the daily summary
+	// Notify, if set, refreshes a user's panel (see Service.Notify).
+	Notify func(userID, event, teamID string)
+	Links  Linker // nil: no EOD thread link in the daily summary
 
 	// Board adds assigned issues to the teams' Projects every SweepEvery
 	// (nil or 0: off). See boardsweep.go.
@@ -434,6 +436,9 @@ func (j *Jobs) autoCloseOne(ctx context.Context, o OpenSessionInfo, now time.Tim
 		j.Log.Error("auto-close audit", "err", err)
 	}
 	j.Status.Enqueue(o.UserID, StatusOff, false)
+	if j.Notify != nil {
+		j.Notify(o.UserID, EventSession, s.TeamID)
+	}
 
 	since := s.CheckIn.In(j.Loc).Format("2 Jan, 3:04 PM")
 	dm := fmt.Sprintf("⏱️ You forgot to check out of **%s** (checked in %s). I closed the session at %s and counted **%s** (your expected hours). If that's wrong, ask an admin to correct it.",

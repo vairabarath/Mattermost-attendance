@@ -41,6 +41,11 @@ type Handler struct {
 	DB        Pinger
 	Verifier  Verifier
 	Log       *slog.Logger
+
+	// Panel and PluginSecret enable /api/v1 for the Attendance plugin
+	// (off when the secret is unset).
+	Panel        PanelAPI
+	PluginSecret string
 }
 
 // Mattermost ids are 26 lowercase alphanumerics.
@@ -63,6 +68,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /mm/action", h.action)
 	mux.HandleFunc("POST /mm/dialog", h.dialog)
 	mux.HandleFunc("GET /healthz", h.healthz)
+	h.apiRoutes(mux)
 	return h.logRequests(mux)
 }
 

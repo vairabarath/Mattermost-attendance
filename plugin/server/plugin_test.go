@@ -42,7 +42,7 @@ func TestHealthReportsSetup(t *testing.T) {
 }
 
 func TestUnknownPath(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/nope", nil)
+	r := httptest.NewRequest(http.MethodGet, "/nope", nil)
 	r.Header.Set("Mattermost-User-Id", "u1")
 	rec := httptest.NewRecorder()
 	(&Plugin{}).ServeHTTP(nil, rec, r)

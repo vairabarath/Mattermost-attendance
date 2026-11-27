@@ -51,6 +51,10 @@ type Config struct {
 	// GitHubSweepMinutes: how often the board sweep runs (0 = off; the
 	// commands still add issues when members look).
 	GitHubSweepMinutes int
+
+	// PluginSecret is shared with the Attendance Mattermost plugin
+	// (PLUGIN_SECRET, 32+ characters). Empty: the panel API is off.
+	PluginSecret string
 }
 
 // GitHubEnabled reports whether the GitHub App is configured.
@@ -195,6 +199,12 @@ func load(getenv func(string) string) (*Config, error) {
 		errs = append(errs, fmt.Errorf("GITHUB_BOARD_SWEEP_MINUTES %q: must be a whole number 0–60 (0 = off)", sweep))
 	} else {
 		cfg.GitHubSweepMinutes = n
+	}
+	if s := def("PLUGIN_SECRET", ""); s != "" {
+		if len(s) < 32 {
+			errs = append(errs, errors.New("PLUGIN_SECRET: must be at least 32 characters (e.g. openssl rand -hex 32)"))
+		}
+		cfg.PluginSecret = s
 	}
 	if cfg.GitHubAppID == 0 {
 		for _, id := range cfg.TeamOrder {

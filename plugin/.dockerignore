@@ -1,0 +1,6 @@
+**/node_modules
+dist
+server/dist
+webapp/dist
+build/bin
+.git

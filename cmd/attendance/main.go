@@ -20,6 +20,7 @@ import (
 	"github.com/vairabarath/Mattermost-attendance/internal/github"
 	"github.com/vairabarath/Mattermost-attendance/internal/handlers"
 	"github.com/vairabarath/Mattermost-attendance/internal/mattermost"
+	"github.com/vairabarath/Mattermost-attendance/internal/pluginbridge"
 	"github.com/vairabarath/Mattermost-attendance/internal/store"
 	"github.com/vairabarath/Mattermost-attendance/migrations"
 )
@@ -96,6 +97,12 @@ func run(log *slog.Logger) error {
 		go tasks.Warm(ctx)
 	}
 	svc.StartEODSync(ctx)
+	if cfg.PluginSecret != "" {
+		n := pluginbridge.NewNotifier(cfg.MMURL, cfg.PluginSecret, log.With("component", "plugin"))
+		n.Start(ctx)
+		svc.Notify = n.Notify
+		log.Info("panel api on", "plugin", pluginbridge.PluginID)
+	}
 	jobs := &attendance.Jobs{
 		Store:      db,
 		Roster:     mm,
@@ -112,6 +119,7 @@ func run(log *slog.Logger) error {
 		EODRetry:   svc.RetryEODSyncs,
 		GitHub:     teamTasks,
 		Links:      mm,
+		Notify:     svc.Notify,
 	}
 	if board != nil {
 		jobs.Board = board
@@ -120,7 +128,8 @@ func run(log *slog.Logger) error {
 	stopJobs := jobs.Start(ctx)
 	defer stopJobs()
 
-	h := &handlers.Handler{Teams: cfg.Teams, Commander: svc, DB: db, Verifier: signer, Log: log}
+	h := &handlers.Handler{Teams: cfg.Teams, Commander: svc, DB: db, Verifier: signer, Log: log,
+		Panel: svc, PluginSecret: cfg.PluginSecret}
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

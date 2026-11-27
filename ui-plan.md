@@ -12,8 +12,8 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 
 | Phase | What | Status | Deployed |
 |---|---|---|---|
-| **0** | Decisions and groundwork | 🟦 in progress | — |
-| **1** | Bot JSON API + plugin bridge (no UI yet) | ⬜ | — |
+| **0** | Decisions and groundwork | ✅ (install steps 0.5–0.7 run with Phase 1's deploy) | — |
+| **1** | Bot JSON API + plugin bridge (no UI yet) | 🟦 built and tested — waiting for your OK to deploy | — |
 | **2** | Member panel: status, live timer, check in / break / check out | ⬜ | — |
 | **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ⬜ | — |
 | **4** | End-of-day report form in the panel | ⬜ | — |
@@ -199,19 +199,21 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 | 0.1 | Decisions D1–D3 recorded | Claude | ✅ |
 | 0.2 | Read-only check: how Mattermost's plugin settings are set (console or locked by env var) | Claude | ✅ plugins on · uploads off · signature not required · not locked by env · **local mode already on** (`mmctl --local` works) → option C possible with no setting change; to confirm with you at install time |
 | 0.3 | `plugin/` from the official starter template; `plugin.json` (id, name, min server version, settings: Bot URL, Secret); builds with `make dist` | Claude | ✅ `com.bittrix.attendance` 0.1.0 builds (27 MB bundle; Linux amd64 + arm64); sample features removed; health endpoint (login required); Go + Jest tests pass |
-| 0.4 | CI: build + test the plugin | Claude | 🟦 job added (build, Go tests, types, Jest, bundle as a download) — runs on the next push |
+| 0.4 | CI: build + test the plugin | Claude | ✅ both CI jobs green |
 | 0.5 | Shared secret generated into the bot's `.env` on the VPS (never printed) | Claude | ⬜ (Phase 1) |
 | 0.6 | Install the plugin with `mmctl --local` (option C; no setting change) | Claude | ⬜ (end of Phase 1) |
 | 0.7 | Put the shared secret into the plugin's settings with `mmctl --local config set`, read from the bot's `.env` | Claude | ⬜ (end of Phase 1) |
 
-### Phase 1 — Bot API + plugin bridge ⬜
-- [ ] Bot: `/api/v1` router, secret check, user + team membership check, JSON errors
-- [ ] Bot: `GET /me`, session endpoints (in / break / back / out) calling the existing service functions
-- [ ] Plugin server: `ServeHTTP` proxy for `/api/*` (user id from Mattermost, adds secret), timeouts, size limits
-- [ ] Plugin server: `internal/notify` → `PublishWebSocketEvent` to one user
-- [ ] Bot: notify hook after state changes (best effort, never blocks)
-- [ ] Tests: auth refused without secret / user / membership; endpoints match slash command behaviour
-- [ ] Live test: install the plugin, `curl` through the plugin from a logged-in browser session
+### Phase 1 — Bot API + plugin bridge 🟦
+- [x] Bot: `/api/v1` router, secret check (constant time), user id + configured team + Mattermost team membership checks, JSON errors (no internal details leak); off without `PLUGIN_SECRET`
+- [x] Bot: `GET /me`, `POST /session/{in,break,back,out}` calling the same functions as `/att` (same messages, custom status, EOD)
+- [x] Plugin server: proxy for `/api/v1/*` (user id from Mattermost's session, adds the secret, forwards no browser headers/cookies, resolves `..`, 64 KB / 2 MB limits, 15 s timeout, no redirects)
+- [x] Plugin server: `internal/notify` (secret, known events, valid user) → websocket event to that one user
+- [x] Bot: notifications after check-in, break, back, check-out and auto-close (background queue, never blocks)
+- [x] Tests: bot API auth and errors, panel state/actions/notifications, notifier, config; plugin proxy, refusals and notify
+- [x] Deploy tooling: `plugin/Dockerfile` (builds the bundle on the server), `scripts/deploy-plugin.sh` (install with `mmctl --local`), `scripts/plugin-config.sh` (secret + Bot URL into the plugin's settings; other plugins kept and checked; tested against a worst-case fake)
+- [ ] Deploy: secret into `.env`, bot, plugin (0.5–0.7)
+- [ ] Live test: `/api/v1/health` and `/api/v1/me` through the plugin from your logged-in browser; check in via the API → `/att status` agrees; notify reaches the browser
 
 ### Phase 2 — Member panel: status and session ⬜
 - [ ] App-bar icon + right-hand panel; team switcher

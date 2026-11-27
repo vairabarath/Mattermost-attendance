@@ -113,6 +113,10 @@ type Service struct {
 	Tasks     TaskSource             // nil: GitHub features off
 	Writer    TaskWriter             // nil: EOD reports aren't written to GitHub
 
+	// Notify, if set, tells the Mattermost plugin to refresh a user's panel
+	// (best effort; must not block).
+	Notify func(userID, event, teamID string)
+
 	// Background runs f in the background (default: a goroutine; tests run
 	// it inline).
 	Background func(f func())
@@ -270,6 +274,7 @@ func (s *Service) checkIn(ctx context.Context, c Command, note string) (Reply, e
 		return Reply{}, err
 	}
 	s.Status.Enqueue(c.UserID, workingKind(mode), true)
+	s.notify(c.UserID, EventSession, c.TeamID)
 
 	msg := fmt.Sprintf("✅ Checked in to **%s** at %s · %s", s.Teams.TeamName(c.TeamID), s.fmtClock(now), modeLabel(mode))
 	if note != "" {
@@ -291,6 +296,7 @@ func (s *Service) checkOut(ctx context.Context, userID, summary, triggerID strin
 		return Reply{}, err
 	}
 	s.Status.Enqueue(userID, StatusOff, false)
+	s.notify(userID, EventSession, sess.TeamID)
 
 	var sessionTotal time.Duration
 	for _, v := range NetByDay([]Session{*sess}, now, s.Loc) {
@@ -328,6 +334,7 @@ func (s *Service) startBreak(ctx context.Context, userID string) (Reply, error) 
 		return Reply{}, err
 	}
 	s.Status.Enqueue(userID, StatusOnBreak, false)
+	s.notify(userID, EventSession, sess.TeamID)
 	return s.withButtons(fmt.Sprintf("☕ On break since %s (%s). Use `/att back` when you return.",
 		s.fmtClock(now), s.Teams.TeamName(sess.TeamID)), userID, true), nil
 }
@@ -344,6 +351,7 @@ func (s *Service) endBreak(ctx context.Context, userID string) (Reply, error) {
 		return Reply{}, err
 	}
 	s.Status.Enqueue(userID, workingKind(sess.WorkMode), false)
+	s.notify(userID, EventSession, sess.TeamID)
 
 	msg := fmt.Sprintf("▶️ Back at %s (%s).", s.fmtClock(now), s.Teams.TeamName(sess.TeamID))
 	if open, err := s.Store.OpenSession(ctx, userID); err == nil && open != nil && len(open.Breaks) > 0 {

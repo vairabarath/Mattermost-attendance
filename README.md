@@ -232,6 +232,17 @@ A failed sync never loses the report: `sync_status` becomes `failed`, `/att eod`
 
 A report with **Blockers** filled in or a task set to **Blocked** posts an alert in **#attendance-admin** with the blocker text, the blocked tasks and a link to the report. Resubmitting edits the same alert (or marks it "no longer lists blockers").
 
+## Attendance panel (Mattermost plugin)
+
+A side panel inside Mattermost (desktop app and browser) — work in progress, see [`ui-plan.md`](ui-plan.md). The plugin `com.bittrix.attendance` (in `plugin/`) is a thin bridge: the panel calls the plugin, which forwards to this bot's `/api/v1` with the logged-in user's id (from Mattermost's session) and a shared secret; the bot runs the same code as the `/att` commands. The bot tells the plugin when something changes (`/plugins/com.bittrix.attendance/internal/notify`, same secret) and the plugin pushes it to that user's panel.
+
+**Setup on the server** (from the repo root, as root):
+
+1. Add a secret to `.env` once: `grep -q '^PLUGIN_SECRET=.' .env || echo "PLUGIN_SECRET=$(openssl rand -hex 32)" >> .env`, then `docker compose up -d --build attendance` (the log says `panel api on`).
+2. `scripts/deploy-plugin.sh` — builds the plugin in Docker (no Go/Node needed on the server), copies the Bot URL and the secret into the plugin's settings with `mmctl --local` (other plugins' settings are kept and checked; a backup goes to `~/.mattermost-plugin-settings.*.json`), then installs and enables it. Needs Mattermost **local mode** (`MM_SERVICESETTINGS_ENABLELOCALMODE=true`); no System Console upload, no setting changes. Run it again to upgrade.
+
+Without `PLUGIN_SECRET` the bot's `/api/v1` doesn't exist. The API is only reachable on the internal Docker network and refuses requests without the secret, a valid user id and a configured team the user belongs to.
+
 ## Scheduled jobs
 
 Times are in `TIMEZONE`. Daily jobs skip non-workdays (`WORKDAYS`) and holidays — a team holiday skips that team, an all-org holiday skips everyone.
@@ -316,6 +327,7 @@ Reviewed at the end of phase 6:
 - **GitHub writes** happen only on issues **assigned to the member**, in the team's org, checked on GitHub right before each write (EOD statuses and picks). A pick must also be on the team's Project. Values from forms and select menus are never trusted: issue lists come from the signed form state, a picked issue is re-checked.
 - **GitHub calls** have timeouts, retries with backoff on 5xx (never for comments and other writes that can't be repeated), and after a rate limit the org's calls pause until GitHub's reset time (at most an hour). GitHub problems never block check-in, check-out or saving a report.
 - **EOD reports:** a signed form or button still works for 48 h, but a report can only be sent or changed the same day or until 11:00 the next morning — checked when it's used. Each sync claims a 5-minute lease and finishes within 4 minutes; a report resubmitted during a sync is synced again, never marked synced by the older run. Issue titles and member text can't notify a whole channel (`@channel`, `@all`, `@here` are neutralised).
+- **Panel API** (`/api/v1`): off unless `PLUGIN_SECRET` (32+ characters) is set; every request needs the secret (constant-time check), a Mattermost user id the plugin took from the session (browsers can't set it — the plugin builds the request to the bot itself and forwards no browser headers or cookies), and a configured team the user is a member of (checked with Mattermost). The plugin only forwards `/api/v1/…` (after resolving `..`), caps bodies, and never follows redirects. Notifications to the plugin need the same secret and only reach the named user.
 - **Dependencies:** pgx and robfig/cron only (the GitHub client is hand-written on the standard library); `govulncheck` reports no known vulnerabilities (also run in CI).
 - **CSV export** escapes values starting with `= + - @` so spreadsheets don't run them.
 
