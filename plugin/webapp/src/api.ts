@@ -15,12 +15,18 @@ export type SessionState = {
     net_seconds: number;
 };
 
+export type EODBrief = {available: boolean; day?: string; day_label?: string; submitted: boolean; sync_line?: string};
+
 export type Me = {
     now: string;
     user_id: string;
     team: TeamRef;
     is_admin: boolean;
     github_linked: boolean;
+    github_login?: string;
+    github_set_up: boolean;
+    display_name: string;
+    eod: EODBrief;
     session: SessionState | null;
     today_team_minutes: number;
     today_all_minutes: number;
@@ -99,8 +105,9 @@ export type EODAnswers = {
     tomorrow: string;
 };
 
-// EODSubmitError carries the bot's per-field messages (did, s0, others…).
-export class EODSubmitError extends Error {
+// FormError carries the bot's per-field messages (did, s0, others,
+// start_date, reason…).
+export class FormError extends Error {
     fields: Record<string, string>;
     constructor(message: string, fields: Record<string, string>) {
         super(message);
@@ -117,8 +124,82 @@ export async function submitEOD(teamId: string, state: string, a: EODAnswers): P
     } catch (e) {
         const err = e as Error & {body?: {errors?: Record<string, string>}};
         if (err.body?.errors) {
-            throw new EODSubmitError(err.message, err.body.errors);
+            throw new FormError(err.message, err.body.errors);
         }
         throw e;
     }
 }
+
+// postForm sends a form and turns the bot's field errors into a FormError.
+async function postForm<T>(path: string, body: unknown): Promise<T> {
+    try {
+        return await doFetch<T>(path, {method: 'post', body: JSON.stringify(body)});
+    } catch (e) {
+        const err = e as Error & {body?: {errors?: Record<string, string>}};
+        if (err.body?.errors) {
+            throw new FormError(err.message, err.body.errors);
+        }
+        throw e;
+    }
+}
+
+// --- Hours ---
+
+export type HoursRange = 'today' | 'week' | 'month';
+export type HoursDay = {day: string; label: string; seconds: number; modes: string[]; open: boolean};
+export type Hours = {
+    range: HoursRange;
+    label: string;
+    days: HoursDay[];
+    team_seconds: number;
+    all_seconds: number;
+    by_org: Array<{team: TeamRef; seconds: number}>;
+    has_expected: boolean;
+    expected_seconds: number;
+    expected_until?: string;
+    worked_until_yesterday: number;
+    per_day_hours: number;
+};
+
+export const fetchHours = (teamId: string, range: HoursRange) =>
+    doFetch<Hours>(`/hours${teamQuery(teamId)}&range=${range}`);
+
+// --- Work from home ---
+
+export type WFHItem = {
+    id: number;
+    dates: string;
+    start: string;
+    end: string;
+    half_day: boolean;
+    reason: string;
+    status: 'pending' | 'approved' | 'rejected' | 'cancelled' | string;
+    decided_by?: string;
+    note?: string;
+    can_cancel: boolean;
+};
+export type WFHState = {team: TeamRef; today: string; pending: number; requests: WFHItem[]};
+export type WFHRequestForm = {start_date: string; end_date: string; half_day: boolean; reason: string};
+
+export const fetchWFH = (teamId: string) => doFetch<WFHState>(`/wfh${teamQuery(teamId)}`);
+
+export const requestWFH = async (teamId: string, f: WFHRequestForm) =>
+    (await postForm<{wfh: WFHState}>(`/wfh${teamQuery(teamId)}`, f)).wfh;
+
+export const cancelWFH = (teamId: string, id: number) =>
+    doFetch<{message: string; wfh: WFHState}>(`/wfh/${id}/cancel${teamQuery(teamId)}`, {method: 'post'});
+
+// --- My settings ---
+
+export type Settings = {
+    team: TeamRef;
+    is_admin: boolean;
+    github_set_up: boolean;
+    github_org?: string;
+    github_login?: string;
+    expected_hours: number;
+    tracked: boolean;
+    reminders_on: boolean;
+};
+
+export const fetchSettings = (teamId: string) => doFetch<Settings>(`/settings${teamQuery(teamId)}`);

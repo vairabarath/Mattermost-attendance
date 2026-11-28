@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,6 +24,11 @@ type PanelAPI interface {
 	PanelPick(ctx context.Context, userID, teamID, issueURL string) (string, error)
 	PanelEOD(ctx context.Context, userID, teamID, day string) (attendance.EODFormState, error)
 	PanelSubmitEOD(ctx context.Context, userID, teamID string, fields map[string]string, submission map[string]any) (attendance.DialogResult, error)
+	PanelHours(ctx context.Context, userID, teamID, rng string) (attendance.HoursState, error)
+	PanelWFH(ctx context.Context, userID, teamID string) (attendance.WFHState, error)
+	PanelRequestWFH(ctx context.Context, userID, teamID, start, end string, halfDay bool, reason string) (attendance.DialogResult, error)
+	PanelCancelWFH(ctx context.Context, userID, teamID string, id int64) (string, error)
+	PanelSettings(ctx context.Context, userID, teamID string) (attendance.SettingsState, error)
 }
 
 // apiRoutes registers /api/v1/* when the plugin secret is set. Only the
@@ -39,6 +45,11 @@ func (h *Handler) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/tasks/pick", h.api(h.apiPick))
 	mux.HandleFunc("GET /api/v1/eod", h.api(h.apiEOD))
 	mux.HandleFunc("POST /api/v1/eod", h.api(h.apiSubmitEOD))
+	mux.HandleFunc("GET /api/v1/hours", h.api(h.apiHours))
+	mux.HandleFunc("GET /api/v1/wfh", h.api(h.apiWFH))
+	mux.HandleFunc("POST /api/v1/wfh", h.api(h.apiRequestWFH))
+	mux.HandleFunc("POST /api/v1/wfh/{id}/cancel", h.api(h.apiCancelWFH))
+	mux.HandleFunc("GET /api/v1/settings", h.api(h.apiSettings))
 }
 
 var dayRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -224,6 +235,83 @@ func (h *Handler) apiSubmitEOD(w http.ResponseWriter, r *http.Request, a apiRequ
 	}
 	h.Log.Info("api ok", "user_id", a.userID, "team_id", a.teamID, "action", "eod_submit")
 	apiJSON(w, http.StatusOK, map[string]any{"eod": st})
+}
+
+func (h *Handler) apiHours(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	rng := r.URL.Query().Get("range")
+	if rng == "" {
+		rng = "today"
+	}
+	st, err := h.Panel.PanelHours(r.Context(), a.userID, a.teamID, rng)
+	if errors.Is(err, attendance.ErrBadRange) {
+		apiError(w, http.StatusBadRequest, "Use range=today, week or month.")
+		return
+	}
+	if h.apiFailed(w, err, "hours", a) {
+		return
+	}
+	apiJSON(w, http.StatusOK, st)
+}
+
+func (h *Handler) apiWFH(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	st, err := h.Panel.PanelWFH(r.Context(), a.userID, a.teamID)
+	if h.apiFailed(w, err, "wfh", a) {
+		return
+	}
+	apiJSON(w, http.StatusOK, st)
+}
+
+func (h *Handler) apiRequestWFH(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	var body struct {
+		Start   string `json:"start_date"`
+		End     string `json:"end_date"`
+		HalfDay bool   `json:"half_day"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apiError(w, http.StatusBadRequest, "Bad request.")
+		return
+	}
+	res, err := h.Panel.PanelRequestWFH(r.Context(), a.userID, a.teamID, body.Start, body.End, body.HalfDay, body.Reason)
+	if h.apiFailed(w, err, "wfh_request", a) {
+		return
+	}
+	if res.Error != "" || len(res.Errors) > 0 {
+		apiJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": res.Error, "errors": res.Errors})
+		return
+	}
+	st, err := h.Panel.PanelWFH(r.Context(), a.userID, a.teamID)
+	if h.apiFailed(w, err, "wfh", a) {
+		return
+	}
+	h.Log.Info("api ok", "user_id", a.userID, "team_id", a.teamID, "action", "wfh_request")
+	apiJSON(w, http.StatusOK, map[string]any{"wfh": st})
+}
+
+func (h *Handler) apiCancelWFH(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		apiError(w, http.StatusBadRequest, "Bad request.")
+		return
+	}
+	msg, err := h.Panel.PanelCancelWFH(r.Context(), a.userID, a.teamID, id)
+	if h.apiFailed(w, err, "wfh_cancel", a) {
+		return
+	}
+	st, err := h.Panel.PanelWFH(r.Context(), a.userID, a.teamID)
+	if h.apiFailed(w, err, "wfh", a) {
+		return
+	}
+	h.Log.Info("api ok", "user_id", a.userID, "team_id", a.teamID, "action", "wfh_cancel")
+	apiJSON(w, http.StatusOK, map[string]any{"message": msg, "wfh": st})
+}
+
+func (h *Handler) apiSettings(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	st, err := h.Panel.PanelSettings(r.Context(), a.userID, a.teamID)
+	if h.apiFailed(w, err, "settings", a) {
+		return
+	}
+	apiJSON(w, http.StatusOK, st)
 }
 
 // apiFailed writes the error reply for err (if any) and reports whether it did.

@@ -42,12 +42,18 @@ type SessionState struct {
 
 // MeState is everything the panel's status card needs.
 type MeState struct {
-	Now          time.Time     `json:"now"`
-	UserID       string        `json:"user_id"`
-	Team         TeamRef       `json:"team"`
-	IsAdmin      bool          `json:"is_admin"`
-	GitHubLinked bool          `json:"github_linked"`
-	Session      *SessionState `json:"session"` // nil: not checked in anywhere
+	Now          time.Time `json:"now"`
+	UserID       string    `json:"user_id"`
+	Team         TeamRef   `json:"team"`
+	IsAdmin      bool      `json:"is_admin"`
+	GitHubLinked bool      `json:"github_linked"`
+	GitHubLogin  string    `json:"github_login,omitempty"`
+	GitHubSetUp  bool      `json:"github_set_up"` // this team uses GitHub tasks
+	DisplayName  string    `json:"display_name"`
+	// EOD is the end-of-day report's state for the Home tile (database
+	// only; the form itself comes from /eod).
+	EOD     EODBrief      `json:"eod"`
+	Session *SessionState `json:"session"` // nil: not checked in anywhere
 	// Today's net work: in this team and in all organizations.
 	TodayTeamMinutes int `json:"today_team_minutes"`
 	TodayAllMinutes  int `json:"today_all_minutes"`
@@ -96,8 +102,18 @@ func (s *Service) Me(ctx context.Context, userID, teamID string) (MeState, error
 	if ms, err := s.Store.GetMember(ctx, userID); err != nil {
 		return MeState{}, err
 	} else if ms != nil {
-		st.GitHubLinked = ms.GitHubLogin != ""
+		st.GitHubLinked, st.GitHubLogin = ms.GitHubLogin != "", ms.GitHubLogin
+		st.DisplayName = ms.DisplayName
+		if st.DisplayName == "" {
+			st.DisplayName = ms.Username
+		}
 	}
+	st.GitHubSetUp = s.Tasks != nil && s.Tasks.Configured(teamID)
+	brief, err := s.eodBrief(ctx, userID, teamID)
+	if err != nil {
+		return MeState{}, err
+	}
+	st.EOD = brief
 
 	open, err := s.Store.OpenSession(ctx, userID)
 	if err != nil {
@@ -163,3 +179,6 @@ func (s *Service) notify(userID, event, teamID string) {
 		s.Notify(userID, event, teamID)
 	}
 }
+
+// ErrBadRange refuses an hours range other than today, week or month.
+var ErrBadRange = errors.New("range must be today, week or month")

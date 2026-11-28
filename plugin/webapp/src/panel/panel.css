@@ -262,3 +262,90 @@
     background: var(--center-channel-bg);
     border-top: 1px solid rgba(var(--center-channel-color-rgb), 0.08);
 }
+
+/* Navigation */
+.att-top { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.att-back {
+    border: none;
+    background: none;
+    padding: 4px 8px 4px 0;
+    color: var(--link-color);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.att-back:focus-visible { outline: 2px solid var(--button-bg); outline-offset: 2px; }
+.att-page-title { margin: 0; font-size: 16px; font-weight: 600; flex: 1; min-width: 0; }
+.att-team--small { font-size: 11px; }
+.att-page-body { display: flex; flex-direction: column; gap: 12px; }
+
+/* Home */
+.att-home { display: flex; flex-direction: column; gap: 12px; }
+.att-greeting { margin: 0; font-size: 20px; line-height: 28px; font-weight: 600; }
+.att-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(var(--center-channel-color-rgb), 0.16);
+    background: var(--center-channel-bg);
+}
+.att-bar--on { border-left: 4px solid var(--online-indicator); }
+.att-bar--break { border-left: 4px solid var(--away-indicator); }
+.att-bar--off { border-left: 4px solid rgba(var(--center-channel-color-rgb), 0.32); }
+.att-bar-label { flex: 1; min-width: 0; font-weight: 600; }
+.att-bar-time { font-variant-numeric: tabular-nums; font-weight: 400; }
+.att-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.att-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-height: 88px;
+    padding: 12px;
+    text-align: left;
+    border-radius: 8px;
+    border: 1px solid rgba(var(--center-channel-color-rgb), 0.12);
+    background: var(--center-channel-bg);
+    color: var(--center-channel-color);
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+}
+.att-tile:hover { background: rgba(var(--center-channel-color-rgb), 0.04); border-color: rgba(var(--center-channel-color-rgb), 0.24); }
+.att-tile:focus-visible { outline: 2px solid var(--button-bg); outline-offset: 2px; }
+.att-tile-icon { font-size: 20px; line-height: 24px; }
+.att-tile-title { font-weight: 600; }
+.att-tile-sub { font-size: 12px; line-height: 16px; color: rgba(var(--center-channel-color-rgb), 0.64); }
+.att-tile--warn .att-tile-sub { color: var(--error-text); font-weight: 600; }
+.att-tile--ok .att-tile-sub { color: var(--center-channel-color); }
+
+/* Hours */
+.att-seg--tabs { align-self: flex-start; }
+.att-hours-total { display: flex; gap: 24px; align-items: flex-end; }
+.att-big { font-size: 28px; line-height: 34px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.att-big--muted { font-size: 20px; color: rgba(var(--center-channel-color-rgb), 0.72); }
+.att-expected { display: flex; flex-direction: column; gap: 6px; }
+.att-progress { height: 8px; border-radius: 4px; background: rgba(var(--center-channel-color-rgb), 0.08); overflow: hidden; }
+.att-progress-bar { display: block; height: 100%; background: var(--online-indicator); }
+.att-progress-bar--warn { background: var(--away-indicator); }
+.att-warn-text { color: var(--error-text); }
+.att-days { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.att-day { display: grid; grid-template-columns: 52px 1fr 58px 48px; align-items: center; gap: 8px; font-size: 13px; }
+.att-day-label { color: rgba(var(--center-channel-color-rgb), 0.72); }
+.att-day-bar { height: 8px; border-radius: 4px; background: rgba(var(--center-channel-color-rgb), 0.06); overflow: hidden; }
+.att-day-bar span { display: block; height: 100%; background: var(--button-bg); border-radius: 4px; }
+.att-day-time { text-align: right; font-variant-numeric: tabular-nums; }
+.att-day-modes { font-size: 12px; white-space: nowrap; }
+.att-live { color: var(--online-indicator); font-weight: 600; }
+
+/* Work from home */
+.att-form { gap: 10px; }
+.att-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.att-actions--end { justify-content: flex-end; }
+.att-wfh-dates { font-weight: 600; }
+input.att-input { min-height: 0; height: 32px; }
+
+/* Settings */
+.att-kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 2px 0; }
+.att-check-row { display: flex; gap: 8px; align-items: flex-start; }

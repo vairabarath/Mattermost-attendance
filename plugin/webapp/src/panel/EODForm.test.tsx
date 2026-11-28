@@ -93,7 +93,7 @@ test('sends choices, other tasks and text; too-short text is caught first', asyn
 });
 
 test('field errors from the bot are shown next to the field', async () => {
-    mocked.submitEOD.mockRejectedValue(new api.EODSubmitError('Pick tasks from the list.', {others: 'Pick tasks from the list.'}));
+    mocked.submitEOD.mockRejectedValue(new api.FormError('Pick tasks from the list.', {others: 'Pick tasks from the list.'}));
     render(
         <EODForm
             teamId={TEAM}

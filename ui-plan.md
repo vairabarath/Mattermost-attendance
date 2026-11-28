@@ -2,7 +2,7 @@
 
 A side panel inside Mattermost for attendance, tasks and end-of-day reports, so people click instead of typing `/att` commands. Built as a **Mattermost plugin** that talks to the existing bot. Slash commands stay (mobile app, power users).
 
-_Last updated: 27 Nov 2026 · Owner: barath · Status: **Phase 5 done — next: Phase 6 (hours and WFH in the panel)**_
+_Last updated: 28 Nov 2026 · Owner: barath · Status: **Phase 6 in progress (home + pages, hours, WFH, settings)**_
 
 ---
 
@@ -18,7 +18,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ✅ live-tested | 27 Nov · bot `c63a3e4`, plugin 0.4.0 |
 | **4** | End-of-day report form in the panel | ✅ live-tested | 27 Nov · bot `1ea84b1`, plugin 0.5.1 |
 | **5** | Live updates (panel refreshes itself) | ✅ live-tested | 27 Nov · bot `be0a410`, plugin 0.6.1 |
-| **6** | Hours and WFH in the panel | ⬜ | — |
+| **6** | Home + pages (navigation), Hours, Work from home, My settings | 🟦 in progress | — |
 | **7** | Admin tab: team today, reports, task check | ⬜ | — |
 | **8** | Weekly charts and polish (empty states, loading, errors, a11y) | ⬜ | — |
 | **9** | Hardening, docs, release v1.0 | ⬜ | — |
@@ -267,11 +267,29 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Fixed during the live test: (1) a break still reloaded the end-of-day card (GitHub-backed) → the card now reloads only on check-in/out (0.6.1); (2) issues put on the board by GitHub's own Auto-add, or newly assigned, sent no event → incremental sweeps now notify assignees of every issue created/changed since the last run (`be0a410`)
 - Known: closing an issue on GitHub sends no event (the sweep only looks at open issues); the panel drops it at the next reload / 5-min poll
 
-### Phase 6 — Hours and WFH ⬜
-- [ ] Bot: `GET /hours`, WFH endpoints
-- [ ] Hours card: today, week vs expected, month; per-org split
-- [ ] WFH: request form (dates, half day, reason), list with status, cancel
-- [ ] Tests + live test
+### Phase 6 — Home + pages, Hours, Work from home, My settings 🟦
+
+Your direction (28 Nov): instead of one long page of cards, a **home screen with tiles**; each tile opens its own page with **← Home**. Keep the greeting and the status bar (with the main action) on Home.
+
+```
+Home                                   Pages (each with ← Home)
+┌ Good evening, Barath    BITTRIX ┐    ⏱ Attendance  timer, check in (note) / break / back / check out
+│ ● Working · 1:58:12 [Check out] │    ✅ Tasks       picked for today, other open tasks, Pick
+│ [⏱ Attendance ] [✅ Tasks      ] │    📝 End of day  status, write / edit report (form on the page)
+│ [📝 End of day ] [🏠 WFH        ] │    🏠 WFH         + Request form, my requests ⏳✅❌, Cancel
+│ [📊 Hours      ] [⚙️ My settings] │    📊 Hours       today / week / month, per day, vs expected, per org
+│ (admins) [👥 Team today] (Ph. 7) │    ⚙️ Settings    GitHub link, my profile (view only), connection check
+└──────────────────────────────────┘
+```
+
+- [x] Bot: `GET /hours` (today / week / month: per day with 🏢/🏠, this team, all orgs, per org, expected up to yesterday — the reports' calculation), `GET /wfh` + `POST /wfh` + `POST /wfh/{id}/cancel` (the `/att wfh` code: validation, overlap check, admin post with buttons, audit, live event), `GET /settings`; `/me` adds the GitHub login, display name, "GitHub set up" and the end-of-day summary for the Home tile (database only)
+- [x] Fixed on the way: a WFH request without a chat channel (the panel) no longer tries to post a confirmation into chat; the month view's "only days with time" rule compared the wrong name
+- [x] Panel: Home (greeting, status bar with the main action, 6 tiles with live summaries; Tasks tile only where GitHub is set up), pages with ← Home, the page remembered while Mattermost is open, checking out goes to the End of day page with the form open
+- [x] Pages: Attendance (status card), Tasks, End of day (moved), Hours (tabs, progress against expected, per-day bars, by organization), Work from home (request form with field errors, list with status, cancel with confirmation), My settings (GitHub link, my settings view-only, connection check: plugin / attendance service / GitHub project)
+- [x] Tests: bot (hours week/today/untracked, WFH request/overlap/past/list/cancel rules, settings, Home tile, endpoints); panel 32 tests (home, navigation and memory, status bar check in/out, attendance page, hours, WFH form and cancel, settings, live refresh)
+- [x] Plugin 0.7.0
+- [ ] Deploy (bot + plugin)
+- [ ] Live test
 
 ### Phase 7 — Admin tab ⬜
 - [ ] Bot: admin endpoints (team today, member report, member tasks, team report, WFH decide)

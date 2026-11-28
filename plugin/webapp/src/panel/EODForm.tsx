@@ -3,7 +3,7 @@
 // active task, tasks already closed today, other tasks finished, and three
 // text fields.
 
-import {EODSubmitError, submitEOD} from 'api';
+import {FormError, submitEOD} from 'api';
 import type {EODForm as Form} from 'api';
 import React, {useState} from 'react';
 
@@ -69,7 +69,7 @@ export default function EODForm({teamId, form, onDone, onCancel}: Props) {
             });
             onDone(saved);
         } catch (err) {
-            if (err instanceof EODSubmitError && Object.keys(err.fields).length) {
+            if (err instanceof FormError && Object.keys(err.fields).length) {
                 setErrors(err.fields);
             } else {
                 setError((err as Error).message);

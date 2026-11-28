@@ -1,10 +1,9 @@
-// The Attendance panel (right-hand side). Phase 2: status card with a live
-// timer, check in / break / back / check out. It follows the Mattermost team
-// the user is looking at, and refreshes when the bot says something changed.
+// The Attendance panel (right-hand side): a home screen with tiles, and a
+// page per tile (← Home to go back). It follows the Mattermost team the user
+// is looking at and refreshes itself on live events (see refresh.ts).
 
 import {act, fetchMe} from 'api';
 import type {Me, SessionAction} from 'api';
-import {clock, hm, timeOfDay} from 'format';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useSelector} from 'react-redux';
 
@@ -13,26 +12,46 @@ import type {GlobalState} from '@mattermost/types/store';
 import {getCurrentTeamId} from 'mattermost-redux/selectors/entities/teams';
 
 import EODSection from './EODSection';
+import Home from './Home';
+import type {Page} from './Home';
+import HoursPage from './HoursPage';
 import Markdown from './Markdown';
 import {ALL, requestRefresh, useRefresh} from './refresh';
+import SettingsPage from './SettingsPage';
+import StatusCard from './StatusCard';
 import Tasks from './Tasks';
+import WFHPage from './WFHPage';
 
 import './panel.css';
 
 const POLL_MS = 5 * 60 * 1000;
+const PAGE_KEY = 'attendance.page';
 
-// useNow ticks every second while active.
-function useNow(active: boolean): number {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        if (!active) {
-            return undefined;
-        }
-        setNow(Date.now());
-        const id = window.setInterval(() => setNow(Date.now()), 1000);
-        return () => window.clearInterval(id);
-    }, [active]);
-    return now;
+const TITLES: Record<Exclude<Page, 'home'>, string> = {
+    attendance: '⏱ Attendance',
+    tasks: '✅ Tasks',
+    eod: '📝 End of day',
+    wfh: '🏠 Work from home',
+    hours: '📊 Hours',
+    settings: '⚙️ My settings',
+};
+
+// The page survives closing and reopening the panel while Mattermost is open.
+function savedPage(): Page {
+    try {
+        const p = window.sessionStorage.getItem(PAGE_KEY) as Page | null;
+        return p && (p === 'home' || p in TITLES) ? p : 'home';
+    } catch {
+        return 'home';
+    }
+}
+
+function savePage(p: Page) {
+    try {
+        window.sessionStorage.setItem(PAGE_KEY, p);
+    } catch {
+        // private mode etc.: just don't remember
+    }
 }
 
 export default function Panel() {
@@ -43,10 +62,15 @@ export default function Panel() {
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState<SessionAction | ''>('');
     const [message, setMessage] = useState('');
-    const [confirmOut, setConfirmOut] = useState(false);
-    const [showNote, setShowNote] = useState(false);
-    const [note, setNote] = useState('');
+    const [page, setPage] = useState<Page>(savedPage);
     const [eodOpen, setEodOpen] = useState(false);
+
+    const open = (p: Page) => {
+        setPage(p);
+        savePage(p);
+        setMessage('');
+        setEodOpen(false);
+    };
 
     const show = (m: Me) => {
         setMe(m);
@@ -71,16 +95,14 @@ export default function Panel() {
     useEffect(() => {
         setLoading(true);
         setMessage('');
-        setConfirmOut(false);
         setEodOpen(false);
         load();
     }, [load]);
 
     // A change made elsewhere (chat command, another window, a job): the
-    // last reply here is out of date.
-    useRefresh(['session_changed', 'wfh_changed'], () => {
+    // last reply here is out of date. (eod_changed: the Home tile.)
+    useRefresh(['session_changed', 'wfh_changed', 'eod_changed'], () => {
         setMessage('');
-        setConfirmOut(false);
         load();
     });
 
@@ -95,8 +117,8 @@ export default function Panel() {
         };
     }, []);
 
-    // Checking in or out (here, in chat or in another window) changes what
-    // the end-of-day card shows; a break doesn't. Tell the card only then.
+    // Checking in or out (here, in chat or in another window) changes the
+    // end-of-day report; a break doesn't. Tell the report only then.
     const wasIn = useRef<boolean | null>(null);
     const isIn = me ? Boolean(me.session) : null;
     useEffect(() => {
@@ -109,22 +131,17 @@ export default function Panel() {
         wasIn.current = isIn;
     }, [isIn, teamId]);
 
-    const session = me?.session ?? null;
-    const ticking = Boolean(session && !session.on_break);
-    const now = useNow(Boolean(session));
-    const sinceFetch = fetchedAt ? Math.max(0, (now - fetchedAt) / 1000) : 0;
-
     const run = async (action: SessionAction, text = '') => {
         setBusy(action);
-        setConfirmOut(false);
         try {
             const r = await act(teamId, action, text);
             show(r.me);
             setMessage(r.message);
-            setNote('');
-            setShowNote(false);
             if (action === 'out') {
-                setEodOpen(true); // like the dialog after /att out
+                // Like the dialog after /att out: straight to the report.
+                setPage('eod');
+                savePage('eod');
+                setEodOpen(true);
             }
         } catch (e) {
             setMessage('');
@@ -152,156 +169,101 @@ export default function Panel() {
         );
     }
 
-    const elsewhere = session && session.team.id !== me.team.id;
-    const workSeconds = session ? session.net_seconds + (ticking ? sinceFetch : 0) : 0;
-    const todaySeconds = me.today_team_seconds + (ticking && !elsewhere ? sinceFetch : 0);
-    const allSeconds = me.today_all_seconds + (ticking ? sinceFetch : 0);
-    const breakSeconds = session?.on_break && session.break_since ? (now - Date.parse(session.break_since)) / 1000 : 0;
-    const modeLabel = session?.mode === 'wfh' ? '🏠 Working from home' : '🏢 Office';
+    const session = {me, fetchedAt, busy, run};
+    const notes = (
+        <>
+            {error && (
+                <div
+                    className='att-error'
+                    role='alert'
+                >{error}</div>
+            )}
+            {message && (
+                <div
+                    className='att-message'
+                    role='status'
+                >
+                    <button
+                        className='att-close'
+                        aria-label='Dismiss'
+                        onClick={() => setMessage('')}
+                    >{'×'}</button>
+                    <Markdown text={message}/>
+                </div>
+            )}
+        </>
+    );
 
-    let state = 'off';
-    if (session?.on_break) {
-        state = 'break';
-    } else if (session) {
-        state = 'on';
+    // Tasks only exist in teams with GitHub; fall back to Home elsewhere.
+    const current: Page = page === 'tasks' && !me.github_set_up ? 'home' : page;
+
+    let body: React.ReactNode;
+    switch (current) {
+    case 'attendance':
+        body = (
+            <>
+                <StatusCard {...session}/>
+                {notes}
+            </>
+        );
+        break;
+    case 'tasks':
+        body = (
+            <Tasks
+                teamId={me.team.id}
+                showTitle={false}
+            />
+        );
+        break;
+    case 'eod':
+        body = (
+            <>
+                {notes}
+                <EODSection
+                    teamId={me.team.id}
+                    open={eodOpen}
+                    onOpen={() => setEodOpen(true)}
+                    onClose={() => setEodOpen(false)}
+                />
+            </>
+        );
+        break;
+    case 'wfh':
+        body = <WFHPage teamId={me.team.id}/>;
+        break;
+    case 'hours':
+        body = <HoursPage teamId={me.team.id}/>;
+        break;
+    case 'settings':
+        body = <SettingsPage teamId={me.team.id}/>;
+        break;
+    default:
+        body = (
+            <Home
+                {...session}
+                message={notes}
+                onOpen={open}
+            />
+        );
     }
 
     return (
         <div className='att-panel'>
-            <div className='att-team'>{me.team.name}</div>
-            {!eodOpen && (<>
-
-                <section
-                    className={`att-card att-card--${state}`}
-                    aria-label='Attendance status'
-                >
-                    {!session && (
-                        <>
-                            <div className='att-status'>
-                                <span className='att-dot att-dot--off'/>
-                                {'Not checked in'}
-                            </div>
-                            {showNote ? (
-                                <textarea
-                                    className='att-input'
-                                    placeholder='Note (optional), e.g. “standup at 10”'
-                                    maxLength={500}
-                                    value={note}
-                                    onChange={(e) => setNote(e.target.value)}
-                                    aria-label='Check-in note'
-                                />
-                            ) : (
-                                <button
-                                    className='att-link'
-                                    onClick={() => setShowNote(true)}
-                                >{'+ Add a note'}</button>
-                            )}
-                            <button
-                                className='att-btn att-btn--primary att-btn--wide'
-                                disabled={Boolean(busy)}
-                                onClick={() => run('in', note)}
-                            >{busy === 'in' ? 'Checking in…' : '▶ Check in'}</button>
-                        </>
-                    )}
-
-                    {session && (
-                        <>
-                            <div className='att-status'>
-                                <span className={`att-dot att-dot--${state}`}/>
-                                {session.on_break ? 'On break' : 'Working'}
-                                {elsewhere && <span className='att-muted'>{` · in ${session.team.name}`}</span>}
-                            </div>
-                            <div
-                                className='att-timer'
-                                aria-label='Time worked this session'
-                            >{clock(workSeconds)}</div>
-                            <div className='att-muted'>
-                                {`since ${timeOfDay(session.check_in)} · ${modeLabel}`}
-                                {session.on_break && ` · break ${hm(breakSeconds)}`}
-                            </div>
-                            <div className='att-actions'>
-                                {session.on_break ? (
-                                    <button
-                                        className='att-btn att-btn--primary'
-                                        disabled={Boolean(busy)}
-                                        onClick={() => run('back')}
-                                    >{busy === 'back' ? '…' : '▶ Back'}</button>
-                                ) : (
-                                    <button
-                                        className='att-btn'
-                                        disabled={Boolean(busy)}
-                                        onClick={() => run('break')}
-                                    >{busy === 'break' ? '…' : '☕ Break'}</button>
-                                )}
-                                {confirmOut ? (
-                                    <span className='att-confirm'>
-                                        <button
-                                            className='att-btn att-btn--danger'
-                                            disabled={Boolean(busy)}
-                                            onClick={() => run('out')}
-                                        >{busy === 'out' ? 'Checking out…' : 'Yes, check out'}</button>
-                                        <button
-                                            className='att-link'
-                                            onClick={() => setConfirmOut(false)}
-                                        >{'Cancel'}</button>
-                                    </span>
-                                ) : (
-                                    <button
-                                        className='att-btn att-btn--danger'
-                                        disabled={Boolean(busy)}
-                                        onClick={() => setConfirmOut(true)}
-                                    >{'🔴 Check out'}</button>
-                                )}
-                            </div>
-                        </>
-                    )}
-                    <div
-                        className='att-card-foot'
-                        aria-label='Today'
-                    >
-                        <span>
-                            <span className='att-muted'>{'Today '}</span>
-                            <strong>{hm(todaySeconds)}</strong>
-                        </span>
-                        {allSeconds !== todaySeconds && (
-                            <span>
-                                <span className='att-muted'>{'All orgs '}</span>
-                                <strong>{hm(allSeconds)}</strong>
-                            </span>
-                        )}
-                    </div>
-                </section>
-
-                {error && (
-                    <div
-                        className='att-error'
-                        role='alert'
-                    >{error}</div>
-                )}
-                {message && (
-                    <div
-                        className='att-message'
-                        role='status'
-                    >
+            <div className='att-top'>
+                {current === 'home' ? (
+                    <span className='att-team'>{me.team.name}</span>
+                ) : (
+                    <>
                         <button
-                            className='att-close'
-                            aria-label='Dismiss'
-                            onClick={() => setMessage('')}
-                        >{'×'}</button>
-                        <Markdown text={message}/>
-                    </div>
+                            className='att-back'
+                            onClick={() => open('home')}
+                        >{'← Home'}</button>
+                        <h2 className='att-page-title'>{TITLES[current as Exclude<Page, 'home'>]}</h2>
+                        <span className='att-team att-team--small'>{me.team.name}</span>
+                    </>
                 )}
-
-            </>)}
-
-            <EODSection
-                teamId={me.team.id}
-                open={eodOpen}
-                onOpen={() => setEodOpen(true)}
-                onClose={() => setEodOpen(false)}
-            />
-
-            {!eodOpen && <Tasks teamId={me.team.id}/>}
+            </div>
+            {body}
         </div>
     );
 }

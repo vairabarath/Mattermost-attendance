@@ -66,7 +66,7 @@ function TaskRow({task, busy, onPick}: {task: TaskItem; busy: boolean; onPick?: 
     );
 }
 
-export default function Tasks({teamId}: {teamId: string}) {
+export default function Tasks({teamId, showTitle = true}: {teamId: string; showTitle?: boolean}) {
     const [data, setData] = useState<TasksState | null>(null);
     const [failed, setFailed] = useState('');
     const [busy, setBusy] = useState('');
@@ -190,7 +190,7 @@ export default function Tasks({teamId}: {teamId: string}) {
             className='att-card att-card--plain'
             aria-label='Your tasks'
         >
-            <h3 className='att-h'>{'Tasks'}</h3>
+            {showTitle && <h3 className='att-h'>{'Tasks'}</h3>}
             {notice && (
                 <div
                     className='att-notice'

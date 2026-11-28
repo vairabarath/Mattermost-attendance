@@ -22,6 +22,8 @@ type fakePanel struct {
 	gotFields                            map[string]string
 	gotSub                               map[string]any
 	submitRes                            attendance.DialogResult
+	gotHalf                              bool
+	gotID                                int64
 }
 
 func (f *fakePanel) PanelTasks(_ context.Context, userID, teamID string) (attendance.TasksState, error) {
@@ -35,6 +37,28 @@ func (f *fakePanel) PanelEOD(_ context.Context, userID, teamID, day string) (att
 func (f *fakePanel) PanelSubmitEOD(_ context.Context, userID, teamID string, fields map[string]string, sub map[string]any) (attendance.DialogResult, error) {
 	f.gotUser, f.gotTeam, f.gotFields, f.gotSub = userID, teamID, fields, sub
 	return f.submitRes, f.err
+}
+func (f *fakePanel) PanelHours(_ context.Context, userID, teamID, rng string) (attendance.HoursState, error) {
+	f.gotUser, f.gotTeam, f.gotText = userID, teamID, rng
+	if rng != "today" && rng != "week" && rng != "month" {
+		return attendance.HoursState{}, attendance.ErrBadRange
+	}
+	return attendance.HoursState{Range: rng}, f.err
+}
+func (f *fakePanel) PanelWFH(_ context.Context, userID, teamID string) (attendance.WFHState, error) {
+	return attendance.WFHState{Today: "2026-11-27"}, f.err
+}
+func (f *fakePanel) PanelRequestWFH(_ context.Context, userID, teamID, start, end string, half bool, reason string) (attendance.DialogResult, error) {
+	f.gotText = start + "|" + end + "|" + reason
+	f.gotHalf = half
+	return f.submitRes, f.err
+}
+func (f *fakePanel) PanelCancelWFH(_ context.Context, userID, teamID string, id int64) (string, error) {
+	f.gotID = id
+	return "🚫 cancelled", f.err
+}
+func (f *fakePanel) PanelSettings(_ context.Context, userID, teamID string) (attendance.SettingsState, error) {
+	return attendance.SettingsState{GitHubLogin: "vairabarath"}, f.err
 }
 func (f *fakePanel) PanelPick(_ context.Context, userID, teamID, url string) (string, error) {
 	f.gotUser, f.gotTeam, f.gotAction, f.gotText = userID, teamID, "pick", url
@@ -229,5 +253,48 @@ func TestAPIEOD(t *testing.T) {
 	rec, out = apiCall(routes, "POST", "/api/v1/eod?team="+teamA, testSecret, user, string(b))
 	if rec.Code != http.StatusUnprocessableEntity || out["errors"].(map[string]any)["did"] == nil {
 		t.Errorf("validation: %d %v", rec.Code, out)
+	}
+}
+
+func TestAPIPages(t *testing.T) {
+	h, _ := newHandler()
+	fp := &fakePanel{}
+	h.Panel, h.PluginSecret = fp, testSecret
+	routes := h.Routes()
+	q := "?team=" + teamA
+
+	if rec, out := apiCall(routes, "GET", "/api/v1/hours"+q+"&range=week", testSecret, user, ""); rec.Code != 200 || out["range"] != "week" {
+		t.Errorf("hours: %d %v", rec.Code, out)
+	}
+	if rec, _ := apiCall(routes, "GET", "/api/v1/hours"+q, testSecret, user, ""); rec.Code != 200 || fp.gotText != "today" {
+		t.Errorf("hours default: %d %q", rec.Code, fp.gotText)
+	}
+	if rec, _ := apiCall(routes, "GET", "/api/v1/hours"+q+"&range=year", testSecret, user, ""); rec.Code != 400 {
+		t.Errorf("bad range: %d", rec.Code)
+	}
+	if rec, out := apiCall(routes, "GET", "/api/v1/wfh"+q, testSecret, user, ""); rec.Code != 200 || out["today"] != "2026-11-27" {
+		t.Errorf("wfh: %d %v", rec.Code, out)
+	}
+	rec, out := apiCall(routes, "POST", "/api/v1/wfh"+q, testSecret, user, `{"start_date":"2026-12-01","end_date":"","half_day":true,"reason":"Plumber"}`)
+	if rec.Code != 200 || out["wfh"] == nil || fp.gotText != "2026-12-01||Plumber" || !fp.gotHalf {
+		t.Errorf("request: %d %v %q", rec.Code, out, fp.gotText)
+	}
+	fp.submitRes = attendance.DialogResult{Errors: map[string]string{"start_date": "Already requested."}}
+	if rec, out := apiCall(routes, "POST", "/api/v1/wfh"+q, testSecret, user, `{"start_date":"2026-12-01"}`); rec.Code != 422 || out["errors"] == nil {
+		t.Errorf("request errors: %d %v", rec.Code, out)
+	}
+	if rec, out := apiCall(routes, "POST", "/api/v1/wfh/12/cancel"+q, testSecret, user, ""); rec.Code != 200 || fp.gotID != 12 || out["message"] != "🚫 cancelled" {
+		t.Errorf("cancel: %d %v", rec.Code, out)
+	}
+	for _, bad := range []string{"0", "-3", "x", "99999999999999999999"} {
+		if rec, _ := apiCall(routes, "POST", "/api/v1/wfh/"+bad+"/cancel"+q, testSecret, user, ""); rec.Code != 400 {
+			t.Errorf("cancel %q: %d", bad, rec.Code)
+		}
+	}
+	if rec, out := apiCall(routes, "GET", "/api/v1/settings"+q, testSecret, user, ""); rec.Code != 200 || out["github_login"] != "vairabarath" {
+		t.Errorf("settings: %d %v", rec.Code, out)
+	}
+	if rec, _ := apiCall(routes, "GET", "/api/v1/settings"+q, "", user, ""); rec.Code != 401 {
+		t.Errorf("settings without secret: %d", rec.Code)
 	}
 }

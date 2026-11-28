@@ -367,8 +367,10 @@ func (s *Service) submitWFH(ctx context.Context, d DialogSubmit) (DialogResult, 
 		}
 	}
 	msg := fmt.Sprintf("🏠 WFH request **#%d** for %s sent to the %s admins. You'll get a DM when it's decided.", id, s.wfhDates(*full), team.Name)
-	if err := s.Posts.EphemeralPost(ctx, d.UserID, d.ChannelID, msg); err != nil {
-		s.Log.Warn("WFH confirmation failed", "err", err)
+	if d.ChannelID != "" { // the panel shows its own confirmation
+		if err := s.Posts.EphemeralPost(ctx, d.UserID, d.ChannelID, msg); err != nil {
+			s.Log.Warn("WFH confirmation failed", "err", err)
+		}
 	}
 	return DialogResult{}, nil
 }
