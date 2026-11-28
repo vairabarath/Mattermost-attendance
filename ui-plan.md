@@ -2,7 +2,7 @@
 
 A side panel inside Mattermost for attendance, tasks and end-of-day reports, so people click instead of typing `/att` commands. Built as a **Mattermost plugin** that talks to the existing bot. Slash commands stay (mobile app, power users).
 
-_Last updated: 28 Nov 2026 · Owner: barath · Status: **Phase 6 done — next: Phase 7 (admin: team today)**_
+_Last updated: 28 Nov 2026 · Owner: barath · Status: **Phase 7 done — next: Phase 8 (charts and polish)**_
 
 ---
 
@@ -19,7 +19,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **4** | End-of-day report form in the panel | ✅ live-tested | 27 Nov · bot `1ea84b1`, plugin 0.5.1 |
 | **5** | Live updates (panel refreshes itself) | ✅ live-tested | 27 Nov · bot `be0a410`, plugin 0.6.1 |
 | **6** | Home + pages (navigation), Hours, Work from home, My settings | ✅ live-tested | 28 Nov · bot `bd9c6f2`, plugin 0.7.1 |
-| **7** | Admin: Team page (today, WFH decisions, reports, CSV) | 🟦 built and tested — waiting for your OK to deploy | — |
+| **7** | Admin: Team page (today, WFH decisions, reports, CSV) | ✅ live-tested | 28 Nov · bot `828764c`, plugin 0.8.1 |
 | **8** | Weekly charts and polish (empty states, loading, errors, a11y) | ⬜ | — |
 | **9** | Hardening, docs, release v1.0 | ⬜ | — |
 
@@ -292,15 +292,17 @@ Home                                   Pages (each with ← Home)
 - [x] Live test (barath, Bittrix, Sat 28 Nov): Home — greeting, status bar "Working · 1:06:00 · Check out", 6 tiles with live summaries ✅ · Attendance page (timer, break, check out, today) ✅ · Tasks page (picked #7, overdue) ✅ · End of day page (today's report sent, synced, Edit) ✅ · Hours page (week: this org 12h 53m, all orgs 19h 10m, 41% of expected up to Fri, per-day bars with 🏢, today "● now", by organization) ✅ · My settings (GitHub ✅ vairabarath, settings, connection: plugin 0.7.1 / service / GitHub project ✅) ✅ · WFH: request Tue 1 Dec from the form → Pending, admin post in #attendance-admin; Cancel (confirmed) → Cancelled, admin post edited "🚫 Cancelled by member", buttons removed ✅ · no errors in the log ✅
 - [x] Polished after the live test: the greeting capitalizes a lowercase name ("barath" → "Barath", 0.7.1)
 
-### Phase 7 — Admin: Team page 🟦
+### Phase 7 — Admin: Team page ✅
 In the home-and-pages design (phase 6) the admin view is a **👥 Team** tile (admins only) opening a Team page with tabs.
 - [x] Bot: `GET /admin/today` (every roster member: working / on break / out / not in / in another org, since, 🏢/🏠, hours here, EOD sent / missing / later, done, blocked, sync; counts; pending WFH), `GET /admin/member` (one member's report as posted + open tasks), `GET /admin/wfh` + `POST /admin/wfh/{id}/decide` (the buttons' code: audit, DM, admin post updated; a rejection needs a reason; urgent flag; days used this month), `GET /admin/report` (`/att report team` for week / month), `POST /admin/export` (`/att export`: CSV by DM)
 - [x] Admin rights checked in Mattermost on every call (403 for members), limited to the team named; a member's detail only for members of that team
 - [x] Panel: 👥 Team tile (admins only; summary "N in · M EOD missing · K WFH to decide"), Team page with tabs Today (summary, member rows → report + tasks, ← Team), WFH (pending with Approve / Reject with reason, urgent, WFH today, last 30 days), Reports (this week / month table, ⚠️ short, CSV to my DMs); refreshes every minute and on WFH events; a remembered Team page can't open for a member
 - [x] Tests: bot (team day states / counts / order, member detail, non-member target, member refused on every admin call, admin of another team refused, WFH approve / reject reason / already decided / other team, report, export, endpoints); panel 38 tests
 - [x] Plugin 0.8.0
-- [ ] Deploy (bot + plugin)
-- [ ] Live test as admin and as member
+- [x] Deploy: bot `828764c`, plugin 0.8.0 → 0.8.1; uploads back to `false`
+- [x] Live test as admin (barath, Bittrix, Sat 28 Nov): Team tile "3 in" ✅ · Today: 3 working, 1 not in, 1/1 EOD; barath EOD ✓ 🚧 1, jana / janarthanan "EOD later", madmap not checked in ✅ · jana's detail: report state + open task (overdue) ✅ · WFH: test request #8 pending (days used shown) → Reject without a reason refused → with a reason → rejected; admin post edited "❌ Rejected by @barath — …", buttons removed; DM to the member ✅ · Reports: this week's table with ⚠️ ✅ · CSV: file DM'd ("15 sessions") ✅ · no errors in the log ✅
+- [x] Fixed after the live test (0.8.1): a member still checked in showed "❌ hasn't sent a report" → "Still checked in: the report opens when they check out"; "← Team" was centred
+- Member access: covered by tests (403 on every admin endpoint, tile hidden, remembered page can't open it); not live-tested — needs a non-admin login
 
 ### Phase 8 — Charts and polish ⬜
 - [ ] Week bar chart (hours per day vs expected), team EOD rate
@@ -334,6 +336,7 @@ In the home-and-pages design (phase 6) the admin view is a **👥 Team** tile (a
 
 ## Changelog
 
+- **28 Nov 2026** — Phase 7 deployed and live-tested: the Team page for admins (today, member drill-down, WFH decisions, reports, CSV). Plugin 0.8.1.
 - **28 Nov 2026** — Phase 6 deployed and live-tested: home screen with tiles and a page per tile (Attendance, Tasks, End of day, Hours, Work from home, My settings). Plugin 0.7.1.
 - **27 Nov 2026** — Phase 5 deployed and live-tested: live updates across windows, targeted refresh, sweep notifications. Plugin 0.6.1.
 - **27 Nov 2026** — Phase 4 deployed and live-tested: the end-of-day report in the panel (card + form, same code as the dialog). Plugin 0.5.1.
