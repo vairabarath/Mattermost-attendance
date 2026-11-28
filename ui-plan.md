@@ -2,7 +2,7 @@
 
 A side panel inside Mattermost for attendance, tasks and end-of-day reports, so people click instead of typing `/att` commands. Built as a **Mattermost plugin** that talks to the existing bot. Slash commands stay (mobile app, power users).
 
-_Last updated: 28 Nov 2026 · Owner: barath · Status: **Phase 6 in progress (home + pages, hours, WFH, settings)**_
+_Last updated: 28 Nov 2026 · Owner: barath · Status: **Phase 6 done — next: Phase 7 (admin: team today)**_
 
 ---
 
@@ -18,7 +18,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **3** | Tasks in the panel: list, pick today's task, 🆕 badges | ✅ live-tested | 27 Nov · bot `c63a3e4`, plugin 0.4.0 |
 | **4** | End-of-day report form in the panel | ✅ live-tested | 27 Nov · bot `1ea84b1`, plugin 0.5.1 |
 | **5** | Live updates (panel refreshes itself) | ✅ live-tested | 27 Nov · bot `be0a410`, plugin 0.6.1 |
-| **6** | Home + pages (navigation), Hours, Work from home, My settings | 🟦 in progress | — |
+| **6** | Home + pages (navigation), Hours, Work from home, My settings | ✅ live-tested | 28 Nov · bot `bd9c6f2`, plugin 0.7.1 |
 | **7** | Admin tab: team today, reports, task check | ⬜ | — |
 | **8** | Weekly charts and polish (empty states, loading, errors, a11y) | ⬜ | — |
 | **9** | Hardening, docs, release v1.0 | ⬜ | — |
@@ -267,7 +267,7 @@ Click a member → their report and tasks. Approve or reject WFH requests inline
 - [x] Fixed during the live test: (1) a break still reloaded the end-of-day card (GitHub-backed) → the card now reloads only on check-in/out (0.6.1); (2) issues put on the board by GitHub's own Auto-add, or newly assigned, sent no event → incremental sweeps now notify assignees of every issue created/changed since the last run (`be0a410`)
 - Known: closing an issue on GitHub sends no event (the sweep only looks at open issues); the panel drops it at the next reload / 5-min poll
 
-### Phase 6 — Home + pages, Hours, Work from home, My settings 🟦
+### Phase 6 — Home + pages, Hours, Work from home, My settings ✅
 
 Your direction (28 Nov): instead of one long page of cards, a **home screen with tiles**; each tile opens its own page with **← Home**. Keep the greeting and the status bar (with the main action) on Home.
 
@@ -288,8 +288,9 @@ Home                                   Pages (each with ← Home)
 - [x] Pages: Attendance (status card), Tasks, End of day (moved), Hours (tabs, progress against expected, per-day bars, by organization), Work from home (request form with field errors, list with status, cancel with confirmation), My settings (GitHub link, my settings view-only, connection check: plugin / attendance service / GitHub project)
 - [x] Tests: bot (hours week/today/untracked, WFH request/overlap/past/list/cancel rules, settings, Home tile, endpoints); panel 32 tests (home, navigation and memory, status bar check in/out, attendance page, hours, WFH form and cancel, settings, live refresh)
 - [x] Plugin 0.7.0
-- [ ] Deploy (bot + plugin)
-- [ ] Live test
+- [x] Deploy: bot `bd9c6f2`, plugin 0.7.0 → 0.7.1; uploads back to `false`
+- [x] Live test (barath, Bittrix, Sat 28 Nov): Home — greeting, status bar "Working · 1:06:00 · Check out", 6 tiles with live summaries ✅ · Attendance page (timer, break, check out, today) ✅ · Tasks page (picked #7, overdue) ✅ · End of day page (today's report sent, synced, Edit) ✅ · Hours page (week: this org 12h 53m, all orgs 19h 10m, 41% of expected up to Fri, per-day bars with 🏢, today "● now", by organization) ✅ · My settings (GitHub ✅ vairabarath, settings, connection: plugin 0.7.1 / service / GitHub project ✅) ✅ · WFH: request Tue 1 Dec from the form → Pending, admin post in #attendance-admin; Cancel (confirmed) → Cancelled, admin post edited "🚫 Cancelled by member", buttons removed ✅ · no errors in the log ✅
+- [x] Polished after the live test: the greeting capitalizes a lowercase name ("barath" → "Barath", 0.7.1)
 
 ### Phase 7 — Admin tab ⬜
 - [ ] Bot: admin endpoints (team today, member report, member tasks, team report, WFH decide)
@@ -331,6 +332,7 @@ Home                                   Pages (each with ← Home)
 
 ## Changelog
 
+- **28 Nov 2026** — Phase 6 deployed and live-tested: home screen with tiles and a page per tile (Attendance, Tasks, End of day, Hours, Work from home, My settings). Plugin 0.7.1.
 - **27 Nov 2026** — Phase 5 deployed and live-tested: live updates across windows, targeted refresh, sweep notifications. Plugin 0.6.1.
 - **27 Nov 2026** — Phase 4 deployed and live-tested: the end-of-day report in the panel (card + form, same code as the dialog). Plugin 0.5.1.
 - **27 Nov 2026** — Phase 3 deployed and live-tested: "Your tasks" in the panel with Pick. Plugin 0.4.0.
