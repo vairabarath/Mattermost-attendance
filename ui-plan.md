@@ -2,7 +2,7 @@
 
 A side panel inside Mattermost for attendance, tasks and end-of-day reports, so people click instead of typing `/att` commands. Built as a **Mattermost plugin** that talks to the existing bot. Slash commands stay (mobile app, power users).
 
-_Last updated: 28 Nov 2026 · Owner: barath · Status: **Phase 7 done — next: Phase 8 (charts and polish)**_
+_Last updated: 28 Nov 2026 · Owner: barath · Status: **Phase 8 done — next: Phase 9 (hardening and release 1.0)**_
 
 ---
 
@@ -20,7 +20,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **5** | Live updates (panel refreshes itself) | ✅ live-tested | 27 Nov · bot `be0a410`, plugin 0.6.1 |
 | **6** | Home + pages (navigation), Hours, Work from home, My settings | ✅ live-tested | 28 Nov · bot `bd9c6f2`, plugin 0.7.1 |
 | **7** | Admin: Team page (today, WFH decisions, reports, CSV) | ✅ live-tested | 28 Nov · bot `828764c`, plugin 0.8.1 |
-| **8** | Weekly charts and polish (empty states, loading, errors, a11y) | 🟦 built and tested — waiting for your OK to deploy | — |
+| **8** | Weekly charts and polish (empty states, loading, errors, a11y) | ✅ live-tested | 28 Nov · bot `4a3e628`, plugin 0.9.2 |
 | **9** | Hardening, docs, release v1.0 | ⬜ | — |
 
 Each phase: build → tests pass → your OK → push → deploy → live test → mark ✅ here.
@@ -304,15 +304,17 @@ In the home-and-pages design (phase 6) the admin view is a **👥 Team** tile (a
 - [x] Fixed after the live test (0.8.1): a member still checked in showed "❌ hasn't sent a report" → "Still checked in: the report opens when they check out"; "← Team" was centred
 - Member access: covered by tests (403 on every admin endpoint, tile hidden, remembered page can't open it); not live-tested — needs a non-admin login
 
-### Phase 8 — Charts and polish 🟦
+### Phase 8 — Charts and polish ✅
 - [x] Week bar chart on Hours → Week: Mon–Sun, one bar per day in the theme's accent colour, dashed "expected" line (tracked members), weekends/holidays shaded, the rest of the week shown as empty days, a running day striped. Hover or Tab / ← → to a day for its exact time; Esc hides it. The per-day list below stays as the table view. Bot: `/hours` days now carry `workday`, `holiday`, `future` (week: all 7 days).
 - [x] Team EOD rate: Reports shows "NN% end-of-day reports sent · X of Y days worked" and an EOD column per member (sent / days worked here; today counts after check-out). Bot: `/admin/report` adds `eod_sent` / `eod_due` per member and in total.
 - [x] Keyboard and screen readers: opening a page moves focus to its title; ← Home returns focus to the tile; chart days are focusable with labels; errors are announced (`role=alert`), loading politely (`role=status`).
 - [x] Colour contrast: muted text raised to ≥ 4.5:1 in the default light theme (was 3.6:1), dark theme ≥ 7:1; the expected line ≥ 3:1.
 - [x] Empty states and errors: every page's load failure says why with **Try again**; empty week / today / reports / WFH say what to do next.
-- [ ] Small-window layout: check in the live test (narrow right-hand panel)
-- [ ] Performance check (panel opens < 1 s; API p95 < 300 ms): measure in the live test
-- [ ] Deploy (bot + plugin 0.9.0); live test
+- [x] Small-window layout: panel forced to 320 px — no page overflows (Home, Attendance, Tasks, End of day, WFH, Hours, My settings, Team)
+- [x] Performance (live, 28 Nov): panel ready **118 ms** after the click; `/me` 65 ms, `/hours` 73–84 ms, `/wfh` 68 ms, `/admin/today` 75–213 ms, `/admin/report` 69–74 ms. Exception: `/tasks` 736 ms — it asks GitHub live; it loads in the background (the page shows "Loading your tasks…"), so the panel isn't held up.
+- [x] Deploy: bot `4a3e628`, plugin 0.9.0 → 0.9.2; uploads back to `false`
+- [x] Live test (barath, Sat 28 Nov): Hours → Week chart Mon–Sun, Sat striped (still checked in) and shaded (day off), Sun "later this week", 8h expected line; tooltip on hover ✅ · focus moves to the page title and back to the tile ✅ · Reports: "50% end-of-day reports sent · 3 of 6 days worked", EOD column barath 2/3, jana 1/3 ✅ · logs clean ✅
+- [x] Fixed after the live test: tooltip covered a bar / left the panel at 320 px → above the plot, anchored inward, wraps (0.9.1, 0.9.2); "8h expected" label overlapped Saturday's bar → "8h" in the axis + a key under the chart; big totals wrapped → no wrap; EOD "—" for someone whose only day is today → "0/1"-style "0/0"
 
 ### Phase 9 — Hardening and release ⬜
 - [ ] Security review (as in tasks phase 6): auth, team scope, secrets, injection, logs
@@ -340,6 +342,7 @@ In the home-and-pages design (phase 6) the admin view is a **👥 Team** tile (a
 
 ## Changelog
 
+- **28 Nov 2026** — Phase 8 deployed and live-tested: week chart, team EOD rate, focus handling, contrast, empty/error states with Try again. Plugin 0.9.2.
 - **28 Nov 2026** — Phase 7 deployed and live-tested: the Team page for admins (today, member drill-down, WFH decisions, reports, CSV). Plugin 0.8.1.
 - **28 Nov 2026** — Phase 6 deployed and live-tested: home screen with tiles and a page per tile (Attendance, Tasks, End of day, Hours, Work from home, My settings). Plugin 0.7.1.
 - **27 Nov 2026** — Phase 5 deployed and live-tested: live updates across windows, targeted refresh, sweep notifications. Plugin 0.6.1.
