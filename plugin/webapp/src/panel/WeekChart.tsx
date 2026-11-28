@@ -50,6 +50,9 @@ export default function WeekChart({data}: {data: Hours}) {
     const expected = data.per_day_hours * 3600;
     const mid = Math.round(max / 2 / 3600) * 3600;
 
+    // One gridline mid-way, unless it would crowd the expected line's label.
+    const showMid = !data.has_expected || Math.abs(mid - expected) > max / 8;
+
     const onKey = (i: number) => (e: React.KeyboardEvent) => {
         let next = i;
         if (e.key === 'ArrowRight') {
@@ -75,20 +78,22 @@ export default function WeekChart({data}: {data: Hours}) {
                 className='att-chart-plot'
                 onMouseLeave={() => setActive(null)}
             >
-                <div
-                    className='att-chart-grid'
-                    style={{bottom: pct(mid)}}
-                    aria-hidden='true'
-                >
-                    <span>{`${mid / 3600}h`}</span>
-                </div>
+                {showMid && (
+                    <div
+                        className='att-chart-grid'
+                        style={{bottom: pct(mid)}}
+                        aria-hidden='true'
+                    >
+                        <span>{`${mid / 3600}h`}</span>
+                    </div>
+                )}
                 {data.has_expected && (
                     <div
                         className='att-chart-expected'
                         style={{bottom: pct(expected)}}
                         aria-hidden='true'
                     >
-                        <span>{`${data.per_day_hours}h expected`}</span>
+                        <span>{`${data.per_day_hours}h`}</span>
                     </div>
                 )}
                 <div
@@ -142,6 +147,15 @@ export default function WeekChart({data}: {data: Hours}) {
                     >{d.label.split(' ')[0].slice(0, 2)}</span>
                 ))}
             </div>
+            {data.has_expected && (
+                <figcaption className='att-chart-key'>
+                    <span
+                        className='att-chart-key-line'
+                        aria-hidden='true'
+                    />
+                    {`${data.per_day_hours}h expected a day`}
+                </figcaption>
+            )}
         </figure>
     );
 }

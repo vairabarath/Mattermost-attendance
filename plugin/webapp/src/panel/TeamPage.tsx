@@ -457,7 +457,7 @@ function ReportsTab({teamId}: {teamId: string}) {
                                             <td>{hm(r.all_seconds)}</td>
                                             <td>{r.has_expected ? hm(r.expected_seconds) : '—'}</td>
                                             <td>{r.wfh_days}</td>
-                                            <td className={r.eod_sent < r.eod_due ? 'att-warn-text' : ''}>{r.eod_due ? `${r.eod_sent}/${r.eod_due}` : '—'}</td>
+                                            <td className={r.eod_sent < r.eod_due ? 'att-warn-text' : ''}>{r.days || r.eod_due ? `${r.eod_sent}/${r.eod_due}` : '—'}</td>
                                         </tr>
                                     ))}
                                 </tbody>

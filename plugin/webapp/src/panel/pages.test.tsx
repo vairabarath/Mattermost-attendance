@@ -80,7 +80,7 @@ test('hours: the week chart has a column per day, readable by hover and keyboard
     expect(cols[3]).toHaveAccessibleName('Thu 26 · no time · holiday: Festival');
     expect(cols[4]).toHaveAccessibleName('Fri 27 · 6h 0m · office · still checked in');
     expect(cols[5]).toHaveAccessibleName('Sat 28 · later this week');
-    expect(within(chart).getByText('8h expected')).toBeInTheDocument();
+    expect(within(chart).getByText('8h expected a day')).toBeInTheDocument();
 
     await userEvent.hover(cols[2]);
     expect(within(chart).getByRole('tooltip')).toHaveTextContent('Wed 25 · 7h 0m · from home');
@@ -99,7 +99,7 @@ test('hours: the week chart has a column per day, readable by hover and keyboard
     await userEvent.click(screen.getByRole('tab', {name: 'Today'}));
     await userEvent.click(screen.getByRole('tab', {name: 'Week'}));
     expect(await screen.findByRole('figure')).toBeInTheDocument();
-    expect(screen.queryByText('8h expected')).not.toBeInTheDocument();
+    expect(screen.queryByText('8h expected a day')).not.toBeInTheDocument();
 });
 
 test('hours: empty week says so', async () => {

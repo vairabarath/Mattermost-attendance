@@ -391,7 +391,7 @@ input.att-input { min-height: 0; height: 32px; }
 .att-table th { font-weight: 600; color: rgba(var(--center-channel-color-rgb), 0.76); }
 
 /* Week chart (Hours page): one series, the expected line, a tooltip per day */
-.att-chart { margin: 4px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.att-chart { margin: 0; padding-top: 28px; display: flex; flex-direction: column; gap: 4px; }
 .att-chart-plot {
     position: relative; height: 132px; margin-left: 28px;
     border-bottom: 1px solid rgba(var(--center-channel-color-rgb), 0.24);
@@ -404,9 +404,11 @@ input.att-input { min-height: 0; height: 32px; }
 }
 .att-chart-expected { border-top: 2px dashed rgba(var(--center-channel-color-rgb), 0.64); z-index: 2; }
 .att-chart-expected span {
-    position: absolute; right: 0; bottom: 2px; padding: 0 4px; font-size: 11px; line-height: 14px;
-    color: rgba(var(--center-channel-color-rgb), 0.76); background: var(--center-channel-bg); border-radius: 3px;
+    position: absolute; left: -28px; top: -9px; width: 24px; text-align: right;
+    font-size: 11px; line-height: 16px; font-weight: 600; color: rgba(var(--center-channel-color-rgb), 0.76);
 }
+.att-chart-key { display: flex; align-items: center; gap: 6px; margin-left: 28px; font-size: 11px; color: rgba(var(--center-channel-color-rgb), 0.76); }
+.att-chart-key-line { width: 16px; border-top: 2px dashed rgba(var(--center-channel-color-rgb), 0.64); }
 .att-chart-cols { position: absolute; inset: 0; display: flex; gap: 2px; }
 .att-chart-col {
     position: relative; flex: 1; display: flex; align-items: flex-end; justify-content: center;
@@ -428,8 +430,8 @@ input.att-input { min-height: 0; height: 32px; }
     background: repeating-linear-gradient(135deg, var(--button-bg) 0 6px, rgba(var(--button-bg-rgb), 0.64) 6px 9px);
 }
 .att-chart-tip {
-    /* Inside the plot, at its top: never clipped by the panel's edge. */
-    position: absolute; top: 4px; left: 50%; transform: translateX(-50%); z-index: 5;
+    /* Above the plot, in the chart's own top padding: covers no bar. */
+    position: absolute; top: -28px; left: 50%; transform: translateX(-50%); z-index: 5;
     padding: 4px 8px; border-radius: 4px; white-space: nowrap; pointer-events: none;
     font-size: 12px; line-height: 16px;
     background: var(--center-channel-color); color: var(--center-channel-bg);
@@ -448,3 +450,5 @@ input.att-input { min-height: 0; height: 32px; }
 .att-stat .att-big { font-size: 24px; line-height: 28px; }
 .att-page-title:focus { outline: none; }
 .att-empty--error { color: var(--error-text); }
+
+.att-big { white-space: nowrap; }
