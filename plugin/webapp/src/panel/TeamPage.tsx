@@ -100,7 +100,13 @@ function MemberView({teamId, member, onBack}: {teamId: string; member: TeamMembe
                 </>
             );
         } else {
-            report = <div className='att-empty'>{d.worked ? '❌ Worked today but hasn’t sent an end-of-day report.' : 'Didn’t work in this team today.'}</div>;
+            let why = 'Didn’t work in this team today.';
+            if (member.eod === 'waiting') {
+                why = 'Still checked in: the report opens when they check out.';
+            } else if (d.worked) {
+                why = '❌ Worked today but hasn’t sent an end-of-day report.';
+            }
+            report = <div className='att-empty'>{why}</div>;
         }
     }
     let tasks: React.ReactNode = null;

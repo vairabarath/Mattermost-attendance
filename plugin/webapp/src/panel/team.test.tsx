@@ -130,3 +130,11 @@ test('reports: week / month table, ⚠️ short, CSV export to DMs', async () =>
     await userEvent.click(screen.getByText('⬇ CSV to my DMs'));
     expect(await screen.findByRole('status')).toHaveTextContent('Attendance export for Bittrix');
 });
+
+test('a member still checked in: the report "opens when they check out", not "missing"', async () => {
+    mocked.fetchMember.mockResolvedValue({user_id: 'barathid', username: 'barath', day: '2026-11-27', day_label: 'Fri 27 Nov', worked: true});
+    render(<TeamPage teamId={TEAM}/>);
+    await userEvent.click(await screen.findByRole('button', {name: /^@barath/}));
+    expect(await screen.findByText('Still checked in: the report opens when they check out.')).toBeInTheDocument();
+    expect(screen.queryByText(/hasn’t sent/)).not.toBeInTheDocument();
+});
