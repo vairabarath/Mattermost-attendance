@@ -394,13 +394,41 @@ type TeamReportItem struct {
 	Short       bool   `json:"short"` // all orgs under 90% of expected
 	WFHDays     int    `json:"wfh_days"`
 	AutoClosed  int    `json:"auto_closed"`
+	EODSent     int    `json:"eod_sent"`
+	EODDue      int    `json:"eod_due"` // days worked here and checked out
 }
 
 // TeamReport is the Team page's week / month report.
 type TeamReport struct {
-	Range string           `json:"range"`
-	Label string           `json:"label"`
-	Rows  []TeamReportItem `json:"rows"`
+	Range   string           `json:"range"`
+	Label   string           `json:"label"`
+	Rows    []TeamReportItem `json:"rows"`
+	EODSent int              `json:"eod_sent"`
+	EODDue  int              `json:"eod_due"`
+}
+
+// eodDue is, per user, the days in the period with time in teamID on which a
+// report was due: every such day, except today while still checked in.
+func eodDue(in TeamReportInput) map[string]map[string]bool {
+	today := in.Now.In(in.Loc).Format(DayFormat)
+	out := map[string]map[string]bool{}
+	for uid, sessions := range in.Sessions {
+		days := map[string]bool{}
+		for k, v := range inPeriod(NetByDay(sessions, in.Now, in.Loc), in.Period) {
+			if k.TeamID == in.TeamID && v > 0 {
+				days[k.Day] = true
+			}
+		}
+		for _, s := range sessions {
+			if s.TeamID == in.TeamID && s.CheckOut == nil {
+				delete(days, today)
+			}
+		}
+		if len(days) > 0 {
+			out[uid] = days
+		}
+	}
+	return out
 }
 
 // AdminReport is /att report team for this week or month.
@@ -417,11 +445,26 @@ func (s *Service) AdminReport(ctx context.Context, adminID, teamID, rng string) 
 	if err != nil {
 		return TeamReport{}, err
 	}
+	statuses, err := s.Store.EODStatuses(ctx, teamID, p.FirstDay.Format(DayFormat), p.LastDay.Format(DayFormat))
+	if err != nil {
+		return TeamReport{}, err
+	}
+	due := eodDue(in)
+	sent := map[string]int{}
+	for _, st := range statuses {
+		if due[st.UserID][st.Day] {
+			sent[st.UserID]++
+		}
+	}
 	out := TeamReport{Range: rng, Label: p.FirstDay.Format("Mon 2 Jan") + " – " + p.LastDay.Format("Mon 2 Jan"), Rows: []TeamReportItem{}}
 	for _, r := range BuildTeamReport(in) {
-		out.Rows = append(out.Rows, TeamReportItem{Username: r.Username, Days: r.Days, TeamSeconds: int(r.Team.Seconds()),
+		item := TeamReportItem{Username: r.Username, Days: r.Days, TeamSeconds: int(r.Team.Seconds()),
 			AllSeconds: int(r.AllOrgs.Seconds()), Expected: int(r.Expected.Seconds()), HasExpected: r.HasExpected,
-			Short: r.Short(), WFHDays: r.WFHDays, AutoClosed: r.AutoClosed})
+			Short: r.Short(), WFHDays: r.WFHDays, AutoClosed: r.AutoClosed,
+			EODSent: sent[r.UserID], EODDue: len(due[r.UserID])}
+		out.EODSent += item.EODSent
+		out.EODDue += item.EODDue
+		out.Rows = append(out.Rows, item)
 	}
 	return out, nil
 }

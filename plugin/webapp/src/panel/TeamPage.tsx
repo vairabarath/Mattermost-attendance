@@ -9,6 +9,7 @@ import React, {useCallback, useEffect, useState} from 'react';
 
 import Markdown from './Markdown';
 import {useRefresh} from './refresh';
+import {LoadState} from './Status';
 
 type Tab = 'today' | 'wfh' | 'reports';
 
@@ -86,11 +87,18 @@ function MemberRow({m, onOpen}: {m: TeamMemberDay; onOpen: (m: TeamMemberDay) =>
 function MemberView({teamId, member, onBack}: {teamId: string; member: TeamMemberDay; onBack: () => void}) {
     const [d, setD] = useState<MemberDetail | null>(null);
     const [failed, setFailed] = useState('');
-    useEffect(() => {
+    const load = useCallback(() => {
+        setFailed('');
         fetchMember(teamId, member.user_id).then(setD).catch((e: Error) => setFailed(e.message));
     }, [teamId, member.user_id]);
+    useEffect(load, [load]);
 
-    let report: React.ReactNode = <div className='att-empty'>{failed || 'Loading…'}</div>;
+    let report: React.ReactNode = (
+        <LoadState
+            failed={failed}
+            onRetry={load}
+        />
+    );
     if (d) {
         if (d.report) {
             report = (
@@ -167,7 +175,7 @@ function MemberView({teamId, member, onBack}: {teamId: string; member: TeamMembe
 
 function TodayTab({teamId, onCount}: {teamId: string; onCount: (n: number) => void}) {
     const fetcher = useCallback(() => fetchTeamDay(teamId), [teamId]);
-    const {data, failed} = usePoll<TeamDay>(fetcher, []);
+    const {data, failed, load} = usePoll<TeamDay>(fetcher, []);
     const [open, setOpen] = useState<TeamMemberDay | null>(null);
     useEffect(() => {
         if (data) {
@@ -185,7 +193,12 @@ function TodayTab({teamId, onCount}: {teamId: string; onCount: (n: number) => vo
         );
     }
     if (!data) {
-        return <div className='att-empty'>{failed || 'Loading…'}</div>;
+        return (
+            <LoadState
+                failed={failed}
+                onRetry={load}
+            />
+        );
     }
     return (
         <>
@@ -286,14 +299,19 @@ function WFHRow({item, teamId, onDone}: {item: AdminWFHItem; teamId: string; onD
 
 function WFHTab({teamId, onCount}: {teamId: string; onCount: (n: number) => void}) {
     const fetcher = useCallback(() => fetchAdminWFH(teamId), [teamId]);
-    const {data, failed, setData} = usePoll<AdminWFH>(fetcher, ['wfh_changed']);
+    const {data, failed, load, setData} = usePoll<AdminWFH>(fetcher, ['wfh_changed']);
     useEffect(() => {
         if (data) {
             onCount(data.pending.length);
         }
     }, [data, onCount]);
     if (!data) {
-        return <div className='att-empty'>{failed || 'Loading…'}</div>;
+        return (
+            <LoadState
+                failed={failed}
+                onRetry={load}
+            />
+        );
     }
     return (
         <>
@@ -348,13 +366,14 @@ function ReportsTab({teamId}: {teamId: string}) {
     const [failed, setFailed] = useState('');
     const [exportMsg, setExportMsg] = useState('');
     const [exporting, setExporting] = useState(false);
+    const load = useCallback(() => {
+        setFailed('');
+        fetchTeamReport(teamId, range).then(setData).catch((e: Error) => setFailed(e.message));
+    }, [teamId, range]);
     useEffect(() => {
         setData(null);
-        fetchTeamReport(teamId, range).then((r) => {
-            setData(r);
-            setFailed('');
-        }).catch((e: Error) => setFailed(e.message));
-    }, [teamId, range]);
+        load();
+    }, [load]);
 
     const doExport = async () => {
         setExporting(true);
@@ -398,37 +417,54 @@ function ReportsTab({teamId}: {teamId: string}) {
                     role='status'
                 ><Markdown text={exportMsg}/></div>
             )}
-            {!data && <div className='att-empty'>{failed || 'Loading…'}</div>}
+            {!data && (
+                <LoadState
+                    failed={failed}
+                    onRetry={load}
+                />
+            )}
             {data && (
                 <>
                     <div className='att-muted att-small'>{data.label}</div>
-                    <div className='att-table-wrap'>
-                        <table className='att-table'>
-                            <thead>
-                                <tr>
-                                    <th>{'Member'}</th>
-                                    <th>{'Days'}</th>
-                                    <th>{'Here'}</th>
-                                    <th>{'All orgs'}</th>
-                                    <th>{'Expected'}</th>
-                                    <th>{'WFH'}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {data.rows.map((r) => (
-                                    <tr key={r.username}>
-                                        <td>{`@${r.username}${r.short ? ' ⚠️' : ''}`}</td>
-                                        <td>{r.days}</td>
-                                        <td>{hm(r.team_seconds)}</td>
-                                        <td>{hm(r.all_seconds)}</td>
-                                        <td>{r.has_expected ? hm(r.expected_seconds) : '—'}</td>
-                                        <td>{r.wfh_days}</td>
+                    {data.eod_due > 0 && (
+                        <div className='att-stat'>
+                            <span className='att-big'>{`${Math.round((data.eod_sent / data.eod_due) * 100)}%`}</span>
+                            <span className='att-muted'>{`end-of-day reports sent · ${data.eod_sent} of ${data.eod_due} days worked`}</span>
+                        </div>
+                    )}
+                    {data.rows.length === 0 ? (
+                        <div className='att-empty'>{'No tracked members, and no one logged time here in this period.'}</div>
+                    ) : (
+                        <div className='att-table-wrap'>
+                            <table className='att-table'>
+                                <thead>
+                                    <tr>
+                                        <th>{'Member'}</th>
+                                        <th>{'Days'}</th>
+                                        <th>{'Here'}</th>
+                                        <th>{'All orgs'}</th>
+                                        <th>{'Expected'}</th>
+                                        <th>{'WFH'}</th>
+                                        <th title='End-of-day reports sent, of the days worked here'>{'EOD'}</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div className='att-muted att-small'>{'⚠️ = all-orgs hours under 90% of expected (up to yesterday). “—” = not tracked.'}</div>
+                                </thead>
+                                <tbody>
+                                    {data.rows.map((r) => (
+                                        <tr key={r.username}>
+                                            <td>{`@${r.username}${r.short ? ' ⚠️' : ''}`}</td>
+                                            <td>{r.days}</td>
+                                            <td>{hm(r.team_seconds)}</td>
+                                            <td>{hm(r.all_seconds)}</td>
+                                            <td>{r.has_expected ? hm(r.expected_seconds) : '—'}</td>
+                                            <td>{r.wfh_days}</td>
+                                            <td className={r.eod_sent < r.eod_due ? 'att-warn-text' : ''}>{r.eod_due ? `${r.eod_sent}/${r.eod_due}` : '—'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    <div className='att-muted att-small'>{'⚠️ = all-orgs hours under 90% of expected (up to yesterday). “—” = not tracked. EOD = reports sent of the days worked here (today counts after check-out).'}</div>
                 </>
             )}
         </>

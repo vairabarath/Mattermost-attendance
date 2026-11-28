@@ -88,13 +88,19 @@ func TestPanelHoursWeek(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h.Range != "week" || h.Label != "Mon 23 Nov – Fri 27 Nov" || len(h.Days) != 5 {
+	if h.Range != "week" || h.Label != "Mon 23 Nov – Fri 27 Nov" || len(h.Days) != 7 {
 		t.Fatalf("range %q %q days %d", h.Range, h.Label, len(h.Days))
 	}
 	mon, wed, fri := h.Days[0], h.Days[2], h.Days[4]
 	if mon.Seconds != 8*3600 || strings.Join(mon.Modes, ",") != "office" || wed.Seconds != 7*3600 || wed.Modes[0] != "wfh" ||
 		fri.Seconds != 6*3600 || !fri.Open || h.Days[1].Seconds != 0 {
 		t.Errorf("days: %+v", h.Days)
+	}
+	// The chart's extras: workdays, the holiday, and the rest of the week.
+	thu, sat, sun := h.Days[3], h.Days[5], h.Days[6]
+	if !mon.Workday || thu.Workday || thu.Holiday != "Festival" || fri.Future || !sat.Future || sat.Workday || !sun.Future ||
+		sun.Day != "2026-11-29" || sun.Label != "Sun 29" {
+		t.Errorf("chart days: %+v", h.Days)
 	}
 	if h.TeamSeconds != 21*3600 || h.AllSeconds != 23*3600 || len(h.ByOrg) != 2 || h.ByOrg[0].Team.Name != "InkYank" || h.ByOrg[0].Seconds != 21*3600 {
 		t.Errorf("totals: team %d all %d orgs %+v", h.TeamSeconds, h.AllSeconds, h.ByOrg)
@@ -109,7 +115,7 @@ func TestPanelHoursWeek(t *testing.T) {
 		t.Errorf("bad range: %v", err)
 	}
 	// Today: nothing finished yet, so no expected hours; untracked: none either.
-	if h, _ := svc.PanelHours(context.Background(), "u", "A", "today"); h.HasExpected || h.TeamSeconds != 6*3600 || len(h.Days) != 1 {
+	if h, _ := svc.PanelHours(context.Background(), "u", "A", "today"); h.HasExpected || h.TeamSeconds != 6*3600 || len(h.Days) != 1 || h.Days[0].Future {
 		t.Errorf("today: %+v", h)
 	}
 	st.member.Tracked = false

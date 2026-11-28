@@ -159,12 +159,15 @@ test('navigation: tiles open pages, ← Home goes back, the page is remembered',
     const first = renderPanel();
 
     await userEvent.click(await screen.findByRole('button', {name: /^Attendance/}));
-    expect(screen.getByRole('heading', {name: '⏱ Attendance'})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: '⏱ Attendance'})).toHaveFocus(); // focus follows
     expect(screen.getByLabelText('Time worked this session')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('← Home'));
+    expect(await screen.findByRole('button', {name: /^Attendance/})).toHaveFocus(); // back on its tile
+    await userEvent.click(screen.getByRole('button', {name: /^Attendance/}));
     first.unmount();
 
-    renderPanel(); // reopening the panel: still on Attendance
-    expect(await screen.findByRole('heading', {name: '⏱ Attendance'})).toBeInTheDocument();
+    renderPanel(); // reopening the panel: still on Attendance, focus left alone
+    expect(await screen.findByRole('heading', {name: '⏱ Attendance'})).not.toHaveFocus();
     await userEvent.click(screen.getByText('← Home'));
     expect(await screen.findByLabelText('Status')).toBeInTheDocument();
     expect(screen.queryByText('← Home')).not.toBeInTheDocument();

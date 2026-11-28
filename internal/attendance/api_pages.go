@@ -43,8 +43,11 @@ type HoursDay struct {
 	Day     string   `json:"day"`
 	Label   string   `json:"label"`
 	Seconds int      `json:"seconds"`
-	Modes   []string `json:"modes"` // office, wfh
-	Open    bool     `json:"open"`  // a session is still running
+	Modes   []string `json:"modes"`             // office, wfh
+	Open    bool     `json:"open"`              // a session is still running
+	Workday bool     `json:"workday"`           // a working day (weekday, not a holiday)
+	Holiday string   `json:"holiday,omitempty"` // the holiday's name
+	Future  bool     `json:"future,omitempty"`  // later this week (week range only)
 }
 
 // HoursOrg is the time in one organization.
@@ -100,18 +103,39 @@ func (s *Service) PanelHours(ctx context.Context, userID, teamID, rng string) (H
 	for _, r := range BuildUserReport(sessions, teamID, p, now, s.Loc) {
 		rows[r.Day] = r
 	}
+	// The week chart shows the whole week (Mon–Sun); nothing else looks ahead.
+	end := p.LastDay
+	if rng == "week" {
+		end = p.FirstDay.AddDate(0, 0, 6)
+	}
+	holidays, err := s.Store.HolidaysBetween(ctx, p.FirstDay.Format(DayFormat), end.Format(DayFormat))
+	if err != nil {
+		return HoursState{}, err
+	}
 	today := now.In(s.Loc).Format(DayFormat)
-	for d := p.FirstDay; !d.After(p.LastDay); d = d.AddDate(0, 0, 1) {
+	for d := p.FirstDay; !d.After(end); d = d.AddDate(0, 0, 1) {
 		day := d.Format(DayFormat)
+		var todays []Holiday
+		holiday := ""
+		for _, h := range holidays {
+			if h.Day == day && (h.TeamID == "" || h.TeamID == teamID) {
+				todays = append(todays, h)
+				holiday = h.Name
+			}
+		}
+		workday := IsWorkday(d, teamID, s.Workdays, todays)
 		if day > today {
-			break
+			st.Days = append(st.Days, HoursDay{Day: day, Label: d.Format("Mon 2"), Modes: []string{},
+				Workday: workday, Holiday: holiday, Future: true})
+			continue
 		}
 		r, worked := rows[day]
 		// A week lists every day so far; a month only days with time.
 		if !worked && rng == "month" {
 			continue
 		}
-		hd := HoursDay{Day: day, Label: d.Format("Mon 2"), Seconds: int(r.Net.Seconds()), Open: r.Open, Modes: []string{}}
+		hd := HoursDay{Day: day, Label: d.Format("Mon 2"), Seconds: int(r.Net.Seconds()), Open: r.Open, Modes: []string{},
+			Workday: workday, Holiday: holiday}
 		for _, m := range []string{"office", "wfh"} {
 			if r.Modes[m] {
 				hd.Modes = append(hd.Modes, m)

@@ -67,7 +67,15 @@ export default function Panel() {
     const [page, setPage] = useState<Page>(savedPage);
     const [eodOpen, setEodOpen] = useState(false);
 
+    // Keyboard and screen-reader users: opening a page moves focus to its
+    // title; ← Home puts it back on the tile they came from.
+    const [cameFrom, setCameFrom] = useState<Page | null>(null);
+    const titleRef = useRef<HTMLHeadingElement>(null);
+    const navigated = useRef(false);
+
     const open = (p: Page) => {
+        navigated.current = true;
+        setCameFrom(p === 'home' ? page : null);
         setPage(p);
         savePage(p);
         setMessage('');
@@ -133,6 +141,12 @@ export default function Panel() {
         wasIn.current = isIn;
     }, [isIn, teamId]);
 
+    useEffect(() => {
+        if (navigated.current && page !== 'home') {
+            titleRef.current?.focus();
+        }
+    }, [page]);
+
     const run = async (action: SessionAction, text = '') => {
         setBusy(action);
         try {
@@ -141,6 +155,7 @@ export default function Panel() {
             setMessage(r.message);
             if (action === 'out') {
                 // Like the dialog after /att out: straight to the report.
+                navigated.current = true;
                 setPage('eod');
                 savePage('eod');
                 setEodOpen(true);
@@ -252,6 +267,7 @@ export default function Panel() {
                 {...session}
                 message={notes}
                 onOpen={open}
+                focusTile={navigated.current ? cameFrom : null}
             />
         );
     }
@@ -267,7 +283,11 @@ export default function Panel() {
                             className='att-back'
                             onClick={() => open('home')}
                         >{'← Home'}</button>
-                        <h2 className='att-page-title'>{TITLES[current as Exclude<Page, 'home'>]}</h2>
+                        <h2
+                            className='att-page-title'
+                            ref={titleRef}
+                            tabIndex={-1}
+                        >{TITLES[current as Exclude<Page, 'home'>]}</h2>
                         <span className='att-team att-team--small'>{me.team.name}</span>
                     </>
                 )}

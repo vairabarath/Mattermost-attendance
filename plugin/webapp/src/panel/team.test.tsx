@@ -50,9 +50,11 @@ beforeEach(() => {
     mocked.fetchTeamReport.mockResolvedValue({range: 'week',
         label: 'Mon 23 Nov – Fri 27 Nov',
         rows: [
-            {username: 'jana', days: 3, team_seconds: 86400, all_seconds: 90000, expected_seconds: 115200, has_expected: true, short: true, wfh_days: 1, auto_closed: 0},
-            {username: 'ghost', days: 0, team_seconds: 0, all_seconds: 0, expected_seconds: 0, has_expected: false, short: false, wfh_days: 0, auto_closed: 0},
-        ]});
+            {username: 'jana', days: 3, team_seconds: 86400, all_seconds: 90000, expected_seconds: 115200, has_expected: true, short: true, wfh_days: 1, auto_closed: 0, eod_sent: 2, eod_due: 3},
+            {username: 'ghost', days: 0, team_seconds: 0, all_seconds: 0, expected_seconds: 0, has_expected: false, short: false, wfh_days: 0, auto_closed: 0, eod_sent: 0, eod_due: 0},
+        ],
+        eod_sent: 2,
+        eod_due: 3});
 });
 
 test('today: summary and one row per member with status, hours, EOD and blockers', async () => {
@@ -124,7 +126,10 @@ test('reports: week / month table, ⚠️ short, CSV export to DMs', async () =>
     const rows = await screen.findAllByRole('row');
     expect(rows[1]).toHaveTextContent('@jana ⚠️');
     expect(rows[1]).toHaveTextContent('24h 0m');
+    expect(rows[1]).toHaveTextContent('2/3');
     expect(rows[2]).toHaveTextContent('—');
+    expect(screen.getByText('67%')).toBeInTheDocument();
+    expect(screen.getByText('end-of-day reports sent · 2 of 3 days worked')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', {name: 'This month'}));
     expect(mocked.fetchTeamReport).toHaveBeenLastCalledWith(TEAM, 'month');
     await userEvent.click(screen.getByText('⬇ CSV to my DMs'));

@@ -1,4 +1,4 @@
-import {render, screen, within} from '@testing-library/react';
+import {act, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as api from 'api';
 import * as client from 'client';
@@ -25,10 +25,13 @@ const hours = (over: Partial<api.Hours> = {}): api.Hours => ({
     range: 'week',
     label: 'Mon 23 Nov – Fri 27 Nov',
     days: [
-        {day: '2026-11-23', label: 'Mon 23', seconds: 28800, modes: ['office'], open: false},
-        {day: '2026-11-24', label: 'Tue 24', seconds: 0, modes: [], open: false},
-        {day: '2026-11-25', label: 'Wed 25', seconds: 25200, modes: ['wfh'], open: false},
-        {day: '2026-11-27', label: 'Fri 27', seconds: 21600, modes: ['office'], open: true},
+        {day: '2026-11-23', label: 'Mon 23', seconds: 28800, modes: ['office'], open: false, workday: true},
+        {day: '2026-11-24', label: 'Tue 24', seconds: 0, modes: [], open: false, workday: true},
+        {day: '2026-11-25', label: 'Wed 25', seconds: 25200, modes: ['wfh'], open: false, workday: true},
+        {day: '2026-11-26', label: 'Thu 26', seconds: 0, modes: [], open: false, workday: false, holiday: 'Festival'},
+        {day: '2026-11-27', label: 'Fri 27', seconds: 21600, modes: ['office'], open: true, workday: true},
+        {day: '2026-11-28', label: 'Sat 28', seconds: 0, modes: [], open: false, workday: false, future: true},
+        {day: '2026-11-29', label: 'Sun 29', seconds: 0, modes: [], open: false, workday: false, future: true},
     ],
     team_seconds: 75600,
     all_seconds: 82800,
@@ -50,19 +53,60 @@ test('hours: totals, expected, per day with modes, by organization; range tabs',
     expect(screen.getByText('Up to Thu 26 Nov: 17h 0m of 24h 0m expected')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '71');
     const days = within(screen.getByLabelText('Per day')).getAllByRole('listitem');
-    expect(days).toHaveLength(4);
+    expect(days).toHaveLength(5); // the rest of the week is only in the chart
     expect(days[0]).toHaveTextContent('Mon 238h 0m🏢');
     expect(days[1]).toHaveTextContent('–');
     expect(days[2]).toHaveTextContent('🏠');
-    expect(days[3]).toHaveTextContent('● now');
+    expect(days[3]).toHaveTextContent('Thu 26 🎉');
+    expect(days[4]).toHaveTextContent('● now');
     expect(screen.getByText('InkYank')).toBeInTheDocument();
     expect(mocked.fetchHours).toHaveBeenLastCalledWith(TEAM, 'week');
 
-    mocked.fetchHours.mockResolvedValue(hours({range: 'month', has_expected: false, by_org: []}));
+    mocked.fetchHours.mockResolvedValue(hours({range: 'month', has_expected: false, by_org: [], days: hours().days.slice(0, 5)}));
     await userEvent.click(screen.getByRole('tab', {name: 'Month'}));
     expect(mocked.fetchHours).toHaveBeenLastCalledWith(TEAM, 'month');
     expect(await screen.findByRole('tab', {name: 'Month'})).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('figure')).not.toBeInTheDocument(); // the chart is for the week
+});
+
+test('hours: the week chart has a column per day, readable by hover and keyboard', async () => {
+    mocked.fetchHours.mockResolvedValue(hours());
+    render(<HoursPage teamId={TEAM}/>);
+    const chart = await screen.findByRole('figure', {name: 'Hours per day, Mon 23 Nov – Fri 27 Nov'});
+    const cols = within(chart).getAllByRole('listitem');
+    expect(cols).toHaveLength(7);
+    expect(cols[0]).toHaveAccessibleName('Mon 23 · 8h 0m · office');
+    expect(cols[3]).toHaveAccessibleName('Thu 26 · no time · holiday: Festival');
+    expect(cols[4]).toHaveAccessibleName('Fri 27 · 6h 0m · office · still checked in');
+    expect(cols[5]).toHaveAccessibleName('Sat 28 · later this week');
+    expect(within(chart).getByText('8h expected')).toBeInTheDocument();
+
+    await userEvent.hover(cols[2]);
+    expect(within(chart).getByRole('tooltip')).toHaveTextContent('Wed 25 · 7h 0m · from home');
+
+    // Keyboard: Tab to a day, arrows to move along.
+    await userEvent.unhover(cols[2]);
+    act(() => cols[0].focus());
+    await userEvent.keyboard('{ArrowRight}');
+    expect(cols[1]).toHaveFocus();
+    expect(within(chart).getByRole('tooltip')).toHaveTextContent('Tue 24 · no time');
+    await userEvent.keyboard('{Escape}');
+    expect(within(chart).queryByRole('tooltip')).not.toBeInTheDocument();
+
+    // No expected line for untracked members.
+    mocked.fetchHours.mockResolvedValue(hours({has_expected: false}));
+    await userEvent.click(screen.getByRole('tab', {name: 'Today'}));
+    await userEvent.click(screen.getByRole('tab', {name: 'Week'}));
+    expect(await screen.findByRole('figure')).toBeInTheDocument();
+    expect(screen.queryByText('8h expected')).not.toBeInTheDocument();
+});
+
+test('hours: empty week says so', async () => {
+    const empty = hours().days.map((d) => ({...d, seconds: 0, open: false, modes: []}));
+    mocked.fetchHours.mockResolvedValue(hours({days: empty, team_seconds: 0, all_seconds: 0}));
+    render(<HoursPage teamId={TEAM}/>);
+    expect(await screen.findByText('No time recorded yet.')).toBeInTheDocument();
 });
 
 const wfh = (requests: api.WFHItem[]): api.WFHState => ({team: {id: TEAM, name: 'Bittrix'}, today: '2026-11-27', pending: requests.filter((r) => r.status === 'pending').length, requests});
@@ -94,7 +138,7 @@ test('wfh: request form sends; field errors from the bot shown; half day only fo
     mocked.requestWFH.mockResolvedValueOnce(wfh([item(4, 'pending')]));
     render(<WFHPage teamId={TEAM}/>);
 
-    expect(await screen.findByText('No requests yet.')).toBeInTheDocument();
+    expect(await screen.findByText(/^No requests yet\. Ask for a day/)).toBeInTheDocument();
     await userEvent.click(screen.getByText('+ Request work from home'));
     const form = within(screen.getByRole('form', {name: 'Request work from home'}));
     const [from, to] = form.getAllByDisplayValue('');
@@ -139,4 +183,14 @@ test('settings: not linked; service unreachable', async () => {
     mockedClient.fetchHealth.mockResolvedValue({ok: true, version: '0.7.0'});
     await userEvent.click(screen.getByText('Check again'));
     expect(await screen.findByText(/Not linked yet/)).toBeInTheDocument();
+});
+
+test('a page that fails to load says why, and Try again reloads it', async () => {
+    mocked.fetchHours.mockRejectedValueOnce(new Error('The attendance service is not reachable.'));
+    mocked.fetchHours.mockResolvedValue(hours());
+    render(<HoursPage teamId={TEAM}/>);
+    expect(await screen.findByRole('alert')).toHaveTextContent('The attendance service is not reachable. Try again');
+    await userEvent.click(screen.getByRole('button', {name: 'Try again'}));
+    expect(await screen.findByRole('figure')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });

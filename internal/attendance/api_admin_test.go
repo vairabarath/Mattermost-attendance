@@ -3,6 +3,7 @@ package attendance
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -217,6 +218,25 @@ func TestAdminReportAndExport(t *testing.T) {
 	}
 	if jana == nil || jana.Days != 1 || jana.TeamSeconds != 8*3600 || jana.WFHDays != 1 {
 		t.Errorf("jana: %+v (rows %+v)", jana, r.Rows)
+	}
+
+	// EOD rate: jana worked Tue (report) and Wed (none); a report on a day
+	// without time doesn't count. barath is still checked in today: not due.
+	wco := istAt(2026, 11, 25, 17, 0)
+	st.sessions = append(st.sessions, Session{TeamID: "A", CheckIn: istAt(2026, 11, 25, 9, 0), CheckOut: &wco, WorkMode: "office"})
+	st.others = map[string][]Session{"u2": {{TeamID: "A", CheckIn: istAt(2026, 11, 27, 9, 0), WorkMode: "office"}}}
+	st.reports["u/A/2026-11-24"] = &EODReport{UserID: "u", TeamID: "A", Day: "2026-11-24"}
+	st.reports["u/A/2026-11-23"] = &EODReport{UserID: "u", TeamID: "A", Day: "2026-11-23"}
+	r, err = svc.AdminReport(ctx, "teamadmin", "A", "week")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eod := map[string]string{}
+	for _, row := range r.Rows {
+		eod[row.Username] = fmt.Sprintf("%d/%d", row.EODSent, row.EODDue)
+	}
+	if eod["jana"] != "1/2" || eod["barath"] != "0/0" || r.EODSent != 1 || r.EODDue != 2 {
+		t.Errorf("EOD rate: %v total %d/%d", eod, r.EODSent, r.EODDue)
 	}
 	if _, err := svc.AdminReport(ctx, "teamadmin", "A", "year"); !errors.Is(err, ErrBadRange) {
 		t.Errorf("bad range: %v", err)

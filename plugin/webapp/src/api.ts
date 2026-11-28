@@ -146,7 +146,16 @@ async function postForm<T>(path: string, body: unknown): Promise<T> {
 // --- Hours ---
 
 export type HoursRange = 'today' | 'week' | 'month';
-export type HoursDay = {day: string; label: string; seconds: number; modes: string[]; open: boolean};
+export type HoursDay = {
+    day: string;
+    label: string;
+    seconds: number;
+    modes: string[];
+    open: boolean;
+    workday: boolean;
+    holiday?: string;
+    future?: boolean; // later this week (week range)
+};
 export type Hours = {
     range: HoursRange;
     label: string;
@@ -272,8 +281,10 @@ export type TeamReportRow = {
     short: boolean;
     wfh_days: number;
     auto_closed: number;
+    eod_sent: number;
+    eod_due: number;
 };
-export type TeamReport = {range: 'week' | 'month'; label: string; rows: TeamReportRow[]};
+export type TeamReport = {range: 'week' | 'month'; label: string; rows: TeamReportRow[]; eod_sent: number; eod_due: number};
 
 export const fetchTeamDay = (teamId: string) => doFetch<TeamDay>(`/admin/today${teamQuery(teamId)}`);
 export const fetchMember = (teamId: string, userId: string) =>

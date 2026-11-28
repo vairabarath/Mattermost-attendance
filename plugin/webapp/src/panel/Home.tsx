@@ -4,7 +4,7 @@
 import {fetchHours, fetchTasks, fetchTeamDay, fetchWFH} from 'api';
 import type {Hours, TasksState, TeamDay, WFHState} from 'api';
 import {hm} from 'format';
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 
 import {useNow} from './hooks';
 import {useRefresh} from './refresh';
@@ -43,11 +43,18 @@ function useLoad<T>(fetcher: (() => Promise<T>) | null, events: string[]) {
     return data;
 }
 
-type TileProps = {icon: string; title: string; summary: React.ReactNode; tone?: 'warn' | 'ok' | ''; onOpen: () => void};
+type TileProps = {icon: string; title: string; summary: React.ReactNode; tone?: 'warn' | 'ok' | ''; focus?: boolean; onOpen: () => void};
 
-function Tile({icon, title, summary, tone = '', onOpen}: TileProps) {
+function Tile({icon, title, summary, tone = '', focus = false, onOpen}: TileProps) {
+    const ref = useRef<HTMLButtonElement>(null);
+    useEffect(() => {
+        if (focus) {
+            ref.current?.focus();
+        }
+    }, [focus]);
     return (
         <button
+            ref={ref}
             className={`att-tile${tone ? ` att-tile--${tone}` : ''}`}
             onClick={onOpen}
         >
@@ -61,10 +68,11 @@ function Tile({icon, title, summary, tone = '', onOpen}: TileProps) {
     );
 }
 
-type Props = SessionProps & {message: React.ReactNode; onOpen: (page: Page) => void};
+type Props = SessionProps & {message: React.ReactNode; onOpen: (page: Page) => void; focusTile?: Page | null};
 
 export default function Home(props: Props) {
-    const {me, onOpen, message} = props;
+    const {me, onOpen, message, focusTile} = props;
+    const tile = (p: Page) => ({focus: focusTile === p, onOpen: () => onOpen(p)});
     const teamId = me.team.id;
     const now = useNow(Boolean(me.session));
     const t = liveSeconds(props, now);
@@ -157,14 +165,14 @@ export default function Home(props: Props) {
                     icon='⏱'
                     title='Attendance'
                     summary={attendance}
-                    onOpen={() => onOpen('attendance')}
+                    {...tile('attendance')}
                 />
                 {me.github_set_up && (
                     <Tile
                         icon='✅'
                         title='Tasks'
                         summary={tasksSummary}
-                        onOpen={() => onOpen('tasks')}
+                        {...tile('tasks')}
                     />
                 )}
                 <Tile
@@ -172,26 +180,26 @@ export default function Home(props: Props) {
                     title='End of day'
                     summary={eod}
                     tone={eodTone}
-                    onOpen={() => onOpen('eod')}
+                    {...tile('eod')}
                 />
                 <Tile
                     icon='🏠'
                     title='Work from home'
                     summary={wfhSummary}
                     tone={wfh?.pending ? 'warn' : ''}
-                    onOpen={() => onOpen('wfh')}
+                    {...tile('wfh')}
                 />
                 <Tile
                     icon='📊'
                     title='Hours'
                     summary={hoursSummary}
-                    onOpen={() => onOpen('hours')}
+                    {...tile('hours')}
                 />
                 <Tile
                     icon='⚙️'
                     title='My settings'
                     summary={me.github_linked ? `GitHub ✓ ${me.github_login ?? ''}` : 'GitHub not linked'}
-                    onOpen={() => onOpen('settings')}
+                    {...tile('settings')}
                 />
                 {me.is_admin && (
                     <Tile
@@ -199,7 +207,7 @@ export default function Home(props: Props) {
                         title='Team'
                         summary={teamSummary}
                         tone={team && (team.wfh_pending || team.eod_due > team.eod_sent) ? 'warn' : ''}
-                        onOpen={() => onOpen('team')}
+                        {...tile('team')}
                     />
                 )}
             </div>

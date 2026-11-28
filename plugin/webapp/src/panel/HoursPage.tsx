@@ -7,6 +7,8 @@ import {hm} from 'format';
 import React, {useCallback, useEffect, useState} from 'react';
 
 import {useRefresh} from './refresh';
+import {LoadState} from './Status';
+import WeekChart from './WeekChart';
 
 const RANGES: Array<{key: HoursRange; label: string}> = [
     {key: 'today', label: 'Today'},
@@ -36,9 +38,16 @@ export default function HoursPage({teamId}: {teamId: string}) {
     }, [load]);
     useRefresh(['session_changed'], load);
 
-    let body: React.ReactNode = <div className='att-empty'>{failed || 'Loading…'}</div>;
+    let body: React.ReactNode = (
+        <LoadState
+            failed={failed}
+            onRetry={load}
+        />
+    );
     if (data && !failed) {
-        const scale = Math.max(data.per_day_hours * 3600, ...data.days.map((d) => d.seconds), 1);
+        const days = data.days.filter((d) => !d.future);
+        const chart = data.range === 'week';
+        const scale = Math.max(data.per_day_hours * 3600, ...days.map((d) => d.seconds), 1);
         const pct = data.has_expected ? Math.round((data.worked_until_yesterday / Math.max(1, data.expected_seconds)) * 100) : 0;
         body = (
             <>
@@ -80,19 +89,21 @@ export default function HoursPage({teamId}: {teamId: string}) {
                     </div>
                 )}
 
-                {data.days.length === 0 ? (
-                    <div className='att-empty'>{'No time recorded.'}</div>
+                {chart && <WeekChart data={data}/>}
+
+                {days.length === 0 || days.every((d) => !d.seconds && !d.open) ? (
+                    <div className='att-empty'>{data.range === 'today' ? 'Nothing yet today: check in to start the clock.' : 'No time recorded yet.'}</div>
                 ) : (
                     <ul
-                        className='att-days'
+                        className={chart ? 'att-days att-days--table' : 'att-days'}
                         aria-label='Per day'
                     >
-                        {data.days.map((d) => (
+                        {days.map((d) => (
                             <li
                                 key={d.day}
                                 className='att-day'
                             >
-                                <span className='att-day-label'>{d.label}</span>
+                                <span className='att-day-label'>{d.label}{d.holiday ? ' 🎉' : ''}</span>
                                 <span className='att-day-bar'>
                                     <span style={{width: `${Math.round((d.seconds / scale) * 100)}%`}}/>
                                 </span>

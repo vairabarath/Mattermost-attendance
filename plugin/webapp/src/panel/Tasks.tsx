@@ -8,6 +8,7 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 
 import Markdown from './Markdown';
 import {useRefresh} from './refresh';
+import {LoadState} from './Status';
 
 const SHOWN = 5;
 const NOTICE_MS = 6000;
@@ -125,19 +126,21 @@ export default function Tasks({teamId, showTitle = true}: {teamId: string; showT
 
     let body: React.ReactNode;
     if (!data && !failed) {
-        body = <div className='att-empty'>{'Loading your tasks…'}</div>;
+        body = (
+            <LoadState
+                failed=''
+                onRetry={load}
+                text='Loading your tasks…'
+            />
+        );
     } else if (data && !data.linked) {
         body = <div className='att-empty'>{'Your GitHub account isn’t linked yet. Send your GitHub username to an admin of this team.'}</div>;
     } else if (failed || data?.error) {
         body = (
-            <div className='att-empty'>
-                {failed || data?.error}
-                {' '}
-                <button
-                    className='att-link'
-                    onClick={load}
-                >{'Try again'}</button>
-            </div>
+            <LoadState
+                failed={failed || data?.error || ''}
+                onRetry={load}
+            />
         );
     } else if (tasks.length === 0) {
         body = <div className='att-empty'>{'No open tasks assigned to you. 🎉'}</div>;

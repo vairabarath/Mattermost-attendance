@@ -13,9 +13,9 @@
     font-weight: 600;
     letter-spacing: 0.02em;
     text-transform: uppercase;
-    color: rgba(var(--center-channel-color-rgb), 0.64);
+    color: rgba(var(--center-channel-color-rgb), 0.76);
 }
-.att-muted { color: rgba(var(--center-channel-color-rgb), 0.64); }
+.att-muted { color: rgba(var(--center-channel-color-rgb), 0.76); }
 .att-card {
     border: 1px solid rgba(var(--center-channel-color-rgb), 0.16);
     border-radius: 8px;
@@ -98,12 +98,12 @@
     border: none;
     background: none;
     font-size: 18px;
-    color: rgba(var(--center-channel-color-rgb), 0.64);
+    color: rgba(var(--center-channel-color-rgb), 0.76);
     cursor: pointer;
 }
 .att-md p { margin: 0 0 4px; }
 .att-md--plain { white-space: pre-wrap; }
-.att-hint { font-size: 12px; color: rgba(var(--center-channel-color-rgb), 0.56); margin: 0; }
+.att-hint { font-size: 12px; color: rgba(var(--center-channel-color-rgb), 0.76); margin: 0; }
 /* Card footer (today's totals) */
 .att-card-foot {
     display: flex;
@@ -124,10 +124,10 @@
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: rgba(var(--center-channel-color-rgb), 0.56);
+    color: rgba(var(--center-channel-color-rgb), 0.76);
     margin-bottom: 2px;
 }
-.att-empty { font-size: 13px; color: rgba(var(--center-channel-color-rgb), 0.64); padding: 4px 0; }
+.att-empty { font-size: 13px; color: rgba(var(--center-channel-color-rgb), 0.76); padding: 4px 0; }
 .att-empty--small { font-size: 12px; }
 .att-more { margin-top: 6px; font-size: 13px; }
 
@@ -177,7 +177,7 @@
     margin-top: 2px;
     font-size: 12px;
     line-height: 18px;
-    color: rgba(var(--center-channel-color-rgb), 0.64);
+    color: rgba(var(--center-channel-color-rgb), 0.76);
 }
 .att-pill {
     font-size: 11px;
@@ -187,7 +187,7 @@
     border-radius: 4px;
     white-space: nowrap;
     background: rgba(var(--center-channel-color-rgb), 0.08);
-    color: rgba(var(--center-channel-color-rgb), 0.72);
+    color: rgba(var(--center-channel-color-rgb), 0.76);
 }
 .att-pill--progress { background: rgba(var(--online-indicator-rgb, 6, 214, 160), 0.16); color: var(--center-channel-color); }
 .att-pill--review { background: rgba(var(--button-bg-rgb), 0.12); color: var(--button-bg); }
@@ -249,7 +249,7 @@
 .att-field { display: flex; flex-direction: column; gap: 4px; }
 .att-label { display: flex; align-items: baseline; gap: 2px; font-weight: 600; font-size: 13px; }
 .att-required { color: var(--error-text); }
-.att-counter { margin-left: auto; font-weight: 400; font-size: 11px; color: rgba(var(--center-channel-color-rgb), 0.48); }
+.att-counter { margin-left: auto; font-weight: 400; font-size: 11px; color: rgba(var(--center-channel-color-rgb), 0.76); }
 .att-counter--over { color: var(--error-text); }
 .att-field-error { color: var(--error-text); font-size: 12px; }
 .att-eod-foot {
@@ -317,7 +317,7 @@
 .att-tile:focus-visible { outline: 2px solid var(--button-bg); outline-offset: 2px; }
 .att-tile-icon { font-size: 20px; line-height: 24px; }
 .att-tile-title { font-weight: 600; }
-.att-tile-sub { font-size: 12px; line-height: 16px; color: rgba(var(--center-channel-color-rgb), 0.64); }
+.att-tile-sub { font-size: 12px; line-height: 16px; color: rgba(var(--center-channel-color-rgb), 0.76); }
 .att-tile--warn .att-tile-sub { color: var(--error-text); font-weight: 600; }
 .att-tile--ok .att-tile-sub { color: var(--center-channel-color); }
 
@@ -325,7 +325,7 @@
 .att-seg--tabs { align-self: flex-start; }
 .att-hours-total { display: flex; gap: 24px; align-items: flex-end; }
 .att-big { font-size: 28px; line-height: 34px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.att-big--muted { font-size: 20px; color: rgba(var(--center-channel-color-rgb), 0.72); }
+.att-big--muted { font-size: 20px; color: rgba(var(--center-channel-color-rgb), 0.76); }
 .att-expected { display: flex; flex-direction: column; gap: 6px; }
 .att-progress { height: 8px; border-radius: 4px; background: rgba(var(--center-channel-color-rgb), 0.08); overflow: hidden; }
 .att-progress-bar { display: block; height: 100%; background: var(--online-indicator); }
@@ -333,7 +333,7 @@
 .att-warn-text { color: var(--error-text); }
 .att-days { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .att-day { display: grid; grid-template-columns: 52px 1fr 58px 48px; align-items: center; gap: 8px; font-size: 13px; }
-.att-day-label { color: rgba(var(--center-channel-color-rgb), 0.72); }
+.att-day-label { color: rgba(var(--center-channel-color-rgb), 0.76); }
 .att-day-bar { height: 8px; border-radius: 4px; background: rgba(var(--center-channel-color-rgb), 0.06); overflow: hidden; }
 .att-day-bar span { display: block; height: 100%; background: var(--button-bg); border-radius: 4px; }
 .att-day-time { text-align: right; font-variant-numeric: tabular-nums; }
@@ -388,4 +388,63 @@ input.att-input { min-height: 0; height: 32px; }
 .att-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .att-table th, .att-table td { padding: 6px 6px; text-align: right; white-space: nowrap; border-bottom: 1px solid rgba(var(--center-channel-color-rgb), 0.08); }
 .att-table th:first-child, .att-table td:first-child { text-align: left; }
-.att-table th { font-weight: 600; color: rgba(var(--center-channel-color-rgb), 0.64); }
+.att-table th { font-weight: 600; color: rgba(var(--center-channel-color-rgb), 0.76); }
+
+/* Week chart (Hours page): one series, the expected line, a tooltip per day */
+.att-chart { margin: 4px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.att-chart-plot {
+    position: relative; height: 132px; margin-left: 28px;
+    border-bottom: 1px solid rgba(var(--center-channel-color-rgb), 0.24);
+}
+.att-chart-grid, .att-chart-expected { position: absolute; left: 0; right: 0; height: 0; pointer-events: none; }
+.att-chart-grid { border-top: 1px solid rgba(var(--center-channel-color-rgb), 0.08); }
+.att-chart-grid span {
+    position: absolute; left: -28px; top: -8px; width: 24px; text-align: right;
+    font-size: 11px; line-height: 16px; color: rgba(var(--center-channel-color-rgb), 0.76);
+}
+.att-chart-expected { border-top: 2px dashed rgba(var(--center-channel-color-rgb), 0.64); z-index: 2; }
+.att-chart-expected span {
+    position: absolute; right: 0; bottom: 2px; padding: 0 4px; font-size: 11px; line-height: 14px;
+    color: rgba(var(--center-channel-color-rgb), 0.76); background: var(--center-channel-bg); border-radius: 3px;
+}
+.att-chart-cols { position: absolute; inset: 0; display: flex; gap: 2px; }
+.att-chart-col {
+    position: relative; flex: 1; display: flex; align-items: flex-end; justify-content: center;
+    border-radius: 4px 4px 0 0; outline: none; cursor: default;
+}
+.att-chart-col.is-off { background: rgba(var(--center-channel-color-rgb), 0.04); }
+.att-chart-col.is-active { background: rgba(var(--center-channel-color-rgb), 0.08); }
+.att-chart-col:focus-visible { box-shadow: inset 0 0 0 2px var(--button-bg); }
+.att-chart-col.is-future::after {
+    content: ''; position: absolute; left: 30%; right: 30%; bottom: 0;
+    border-bottom: 2px dotted rgba(var(--center-channel-color-rgb), 0.24);
+}
+.att-chart-bar {
+    display: block; width: 60%; max-width: 28px; min-height: 2px;
+    background: var(--button-bg); border-radius: 4px 4px 0 0;
+}
+/* Still running: the same colour, striped, so it isn't colour alone. */
+.att-chart-bar.is-open {
+    background: repeating-linear-gradient(135deg, var(--button-bg) 0 6px, rgba(var(--button-bg-rgb), 0.64) 6px 9px);
+}
+.att-chart-tip {
+    /* Inside the plot, at its top: never clipped by the panel's edge. */
+    position: absolute; top: 4px; left: 50%; transform: translateX(-50%); z-index: 5;
+    padding: 4px 8px; border-radius: 4px; white-space: nowrap; pointer-events: none;
+    font-size: 12px; line-height: 16px;
+    background: var(--center-channel-color); color: var(--center-channel-bg);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+}
+.att-chart-tip.is-left { left: 0; transform: none; }
+.att-chart-tip.is-right { left: auto; right: 0; transform: none; }
+.att-chart-axis { display: flex; gap: 2px; margin-left: 28px; }
+.att-chart-axis span { flex: 1; text-align: center; font-size: 11px; color: rgba(var(--center-channel-color-rgb), 0.76); }
+.att-chart-axis span.is-off { color: rgba(var(--center-channel-color-rgb), 0.76); }
+.att-days--table .att-day { grid-template-columns: 64px 1fr 48px; }
+.att-days--table .att-day-bar { display: none; }
+
+/* Team EOD rate */
+.att-stat { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.att-stat .att-big { font-size: 24px; line-height: 28px; }
+.att-page-title:focus { outline: none; }
+.att-empty--error { color: var(--error-text); }

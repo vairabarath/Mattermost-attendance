@@ -246,7 +246,7 @@ export default function WFHPage({teamId}: {teamId: string}) {
             >
                 <h3 className='att-h'>{'My requests'}</h3>
                 {!data && !failed && <div className='att-empty'>{'Loading…'}</div>}
-                {data && data.requests.length === 0 && <div className='att-empty'>{'No requests yet.'}</div>}
+                {data && data.requests.length === 0 && <div className='att-empty'>{'No requests yet. Ask for a day with the form above; an admin approves it and you’ll get a DM.'}</div>}
                 {data && data.requests.length > 0 && (
                     <ul className='att-tasks'>
                         {data.requests.map((r) => (

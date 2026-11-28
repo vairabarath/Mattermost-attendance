@@ -20,7 +20,7 @@ Legend: ⬜ not started · 🟦 in progress · ✅ done · ⏸️ waiting on a d
 | **5** | Live updates (panel refreshes itself) | ✅ live-tested | 27 Nov · bot `be0a410`, plugin 0.6.1 |
 | **6** | Home + pages (navigation), Hours, Work from home, My settings | ✅ live-tested | 28 Nov · bot `bd9c6f2`, plugin 0.7.1 |
 | **7** | Admin: Team page (today, WFH decisions, reports, CSV) | ✅ live-tested | 28 Nov · bot `828764c`, plugin 0.8.1 |
-| **8** | Weekly charts and polish (empty states, loading, errors, a11y) | ⬜ | — |
+| **8** | Weekly charts and polish (empty states, loading, errors, a11y) | 🟦 built and tested — waiting for your OK to deploy | — |
 | **9** | Hardening, docs, release v1.0 | ⬜ | — |
 
 Each phase: build → tests pass → your OK → push → deploy → live test → mark ✅ here.
@@ -304,11 +304,15 @@ In the home-and-pages design (phase 6) the admin view is a **👥 Team** tile (a
 - [x] Fixed after the live test (0.8.1): a member still checked in showed "❌ hasn't sent a report" → "Still checked in: the report opens when they check out"; "← Team" was centred
 - Member access: covered by tests (403 on every admin endpoint, tile hidden, remembered page can't open it); not live-tested — needs a non-admin login
 
-### Phase 8 — Charts and polish ⬜
-- [ ] Week bar chart (hours per day vs expected), team EOD rate
-- [ ] Keyboard access, focus order, screen-reader labels, colour contrast in both themes
-- [ ] Empty states and help text; small-window layout
-- [ ] Performance check (panel opens < 1 s; API p95 < 300 ms)
+### Phase 8 — Charts and polish 🟦
+- [x] Week bar chart on Hours → Week: Mon–Sun, one bar per day in the theme's accent colour, dashed "expected" line (tracked members), weekends/holidays shaded, the rest of the week shown as empty days, a running day striped. Hover or Tab / ← → to a day for its exact time; Esc hides it. The per-day list below stays as the table view. Bot: `/hours` days now carry `workday`, `holiday`, `future` (week: all 7 days).
+- [x] Team EOD rate: Reports shows "NN% end-of-day reports sent · X of Y days worked" and an EOD column per member (sent / days worked here; today counts after check-out). Bot: `/admin/report` adds `eod_sent` / `eod_due` per member and in total.
+- [x] Keyboard and screen readers: opening a page moves focus to its title; ← Home returns focus to the tile; chart days are focusable with labels; errors are announced (`role=alert`), loading politely (`role=status`).
+- [x] Colour contrast: muted text raised to ≥ 4.5:1 in the default light theme (was 3.6:1), dark theme ≥ 7:1; the expected line ≥ 3:1.
+- [x] Empty states and errors: every page's load failure says why with **Try again**; empty week / today / reports / WFH say what to do next.
+- [ ] Small-window layout: check in the live test (narrow right-hand panel)
+- [ ] Performance check (panel opens < 1 s; API p95 < 300 ms): measure in the live test
+- [ ] Deploy (bot + plugin 0.9.0); live test
 
 ### Phase 9 — Hardening and release ⬜
 - [ ] Security review (as in tasks phase 6): auth, team scope, secrets, injection, logs

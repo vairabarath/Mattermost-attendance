@@ -7,6 +7,8 @@ import {fetchHealth} from 'client';
 import type {Health} from 'client';
 import React, {useCallback, useEffect, useState} from 'react';
 
+import {LoadState} from './Status';
+
 function Row({label, children}: {label: string; children: React.ReactNode}) {
     return (
         <div className='att-kv'>
@@ -72,7 +74,12 @@ export default function SettingsPage({teamId}: {teamId: string}) {
                 aria-label='GitHub'
             >
                 <h3 className='att-h'>{'GitHub'}</h3>
-                {!s && <div className='att-empty'>{failed || 'Loading…'}</div>}
+                {!s && (
+                    <LoadState
+                        failed={failed}
+                        onRetry={load}
+                    />
+                )}
                 {s && !s.github_set_up && <div className='att-empty'>{`${s.team.name} doesn’t use GitHub tasks.`}</div>}
                 {s?.github_set_up && s.github_login && (
                     <>
