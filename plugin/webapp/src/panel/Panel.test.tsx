@@ -105,6 +105,12 @@ test('home: greeting, status bar and tiles with live summaries', async () => {
     expect(mocked.fetchMe).toHaveBeenCalledWith(TEAM);
 });
 
+test('home: the greeting capitalizes a lowercase name', async () => {
+    mocked.fetchMe.mockResolvedValue(me({display_name: 'barath'}));
+    renderPanel();
+    expect(await screen.findByRole('heading', {name: /, Barath$/})).toBeInTheDocument();
+});
+
 test('home: no Tasks tile where GitHub isn’t set up', async () => {
     mocked.fetchMe.mockResolvedValue(me({github_set_up: false}));
     renderPanel();

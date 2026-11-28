@@ -76,7 +76,9 @@ export default function Home(props: Props) {
     const wfh = useLoad<WFHState>(wfhFetcher, ['wfh_changed']);
     const week = useLoad<Hours>(hoursFetcher, ['session_changed']);
 
-    const first = (me.display_name || '').split(/\s+/)[0];
+    // First name, capitalized (usernames are often lowercase).
+    const word = (me.display_name || '').trim().split(/\s+/)[0] ?? '';
+    const first = word.charAt(0).toUpperCase() + word.slice(1);
 
     // Attendance tile
     let attendance = `Not checked in · today ${hm(t.today)}`;
