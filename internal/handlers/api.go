@@ -29,6 +29,12 @@ type PanelAPI interface {
 	PanelRequestWFH(ctx context.Context, userID, teamID, start, end string, halfDay bool, reason string) (attendance.DialogResult, error)
 	PanelCancelWFH(ctx context.Context, userID, teamID string, id int64) (string, error)
 	PanelSettings(ctx context.Context, userID, teamID string) (attendance.SettingsState, error)
+	AdminTeamDay(ctx context.Context, adminID, teamID, day string) (attendance.TeamDay, error)
+	AdminMember(ctx context.Context, adminID, teamID, userID, day string) (attendance.MemberDetail, error)
+	AdminWFH(ctx context.Context, adminID, teamID string) (attendance.AdminWFHState, error)
+	AdminDecideWFH(ctx context.Context, adminID, teamID string, id int64, approve bool, note string) (attendance.DialogResult, error)
+	AdminReport(ctx context.Context, adminID, teamID, rng string) (attendance.TeamReport, error)
+	AdminExport(ctx context.Context, adminID, teamID, month string) (string, error)
 }
 
 // apiRoutes registers /api/v1/* when the plugin secret is set. Only the
@@ -50,6 +56,12 @@ func (h *Handler) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/wfh", h.api(h.apiRequestWFH))
 	mux.HandleFunc("POST /api/v1/wfh/{id}/cancel", h.api(h.apiCancelWFH))
 	mux.HandleFunc("GET /api/v1/settings", h.api(h.apiSettings))
+	mux.HandleFunc("GET /api/v1/admin/today", h.api(h.apiAdminToday))
+	mux.HandleFunc("GET /api/v1/admin/member", h.api(h.apiAdminMember))
+	mux.HandleFunc("GET /api/v1/admin/wfh", h.api(h.apiAdminWFH))
+	mux.HandleFunc("POST /api/v1/admin/wfh/{id}/decide", h.api(h.apiAdminDecide))
+	mux.HandleFunc("GET /api/v1/admin/report", h.api(h.apiAdminReport))
+	mux.HandleFunc("POST /api/v1/admin/export", h.api(h.apiAdminExport))
 }
 
 var dayRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -314,6 +326,107 @@ func (h *Handler) apiSettings(w http.ResponseWriter, r *http.Request, a apiReque
 	apiJSON(w, http.StatusOK, st)
 }
 
+// optDay reads an optional ?day=YYYY-MM-DD; ok is false for a bad value.
+func optDay(r *http.Request) (string, bool) {
+	day := r.URL.Query().Get("day")
+	return day, day == "" || dayRe.MatchString(day)
+}
+
+func (h *Handler) apiAdminToday(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	day, ok := optDay(r)
+	if !ok {
+		apiError(w, http.StatusBadRequest, "Bad day.")
+		return
+	}
+	st, err := h.Panel.AdminTeamDay(r.Context(), a.userID, a.teamID, day)
+	if h.apiFailed(w, err, "admin_today", a) {
+		return
+	}
+	apiJSON(w, http.StatusOK, st)
+}
+
+func (h *Handler) apiAdminMember(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	day, ok := optDay(r)
+	user := r.URL.Query().Get("user")
+	if !ok || !idRe.MatchString(user) {
+		apiError(w, http.StatusBadRequest, "Bad request.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	st, err := h.Panel.AdminMember(ctx, a.userID, a.teamID, user, day)
+	if h.apiFailed(w, err, "admin_member", a) {
+		return
+	}
+	apiJSON(w, http.StatusOK, st)
+}
+
+func (h *Handler) apiAdminWFH(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	st, err := h.Panel.AdminWFH(r.Context(), a.userID, a.teamID)
+	if h.apiFailed(w, err, "admin_wfh", a) {
+		return
+	}
+	apiJSON(w, http.StatusOK, st)
+}
+
+func (h *Handler) apiAdminDecide(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	var body struct {
+		Approve bool   `json:"approve"`
+		Note    string `json:"note"`
+	}
+	if err != nil || id <= 0 || json.NewDecoder(r.Body).Decode(&body) != nil {
+		apiError(w, http.StatusBadRequest, "Bad request.")
+		return
+	}
+	res, err := h.Panel.AdminDecideWFH(r.Context(), a.userID, a.teamID, id, body.Approve, body.Note)
+	if h.apiFailed(w, err, "admin_decide", a) {
+		return
+	}
+	if res.Error != "" || len(res.Errors) > 0 {
+		apiJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": res.Error, "errors": res.Errors})
+		return
+	}
+	st, err := h.Panel.AdminWFH(r.Context(), a.userID, a.teamID)
+	if h.apiFailed(w, err, "admin_wfh", a) {
+		return
+	}
+	h.Log.Info("api ok", "user_id", a.userID, "team_id", a.teamID, "action", "wfh_decide", "approve", body.Approve)
+	apiJSON(w, http.StatusOK, map[string]any{"wfh": st})
+}
+
+func (h *Handler) apiAdminReport(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	st, err := h.Panel.AdminReport(r.Context(), a.userID, a.teamID, r.URL.Query().Get("range"))
+	if errors.Is(err, attendance.ErrBadRange) {
+		apiError(w, http.StatusBadRequest, "Use range=week or month.")
+		return
+	}
+	if h.apiFailed(w, err, "admin_report", a) {
+		return
+	}
+	apiJSON(w, http.StatusOK, st)
+}
+
+var monthRe = regexp.MustCompile(`^\d{4}-\d{2}$`)
+
+func (h *Handler) apiAdminExport(w http.ResponseWriter, r *http.Request, a apiRequest) {
+	var body struct {
+		Month string `json:"month"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || (body.Month != "" && !monthRe.MatchString(body.Month)) {
+		apiError(w, http.StatusBadRequest, "Bad request.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	msg, err := h.Panel.AdminExport(ctx, a.userID, a.teamID, body.Month)
+	if h.apiFailed(w, err, "admin_export", a) {
+		return
+	}
+	h.Log.Info("api ok", "user_id", a.userID, "team_id", a.teamID, "action", "export")
+	apiJSON(w, http.StatusOK, map[string]any{"message": msg})
+}
+
 // apiFailed writes the error reply for err (if any) and reports whether it did.
 func (h *Handler) apiFailed(w http.ResponseWriter, err error, what string, a apiRequest) bool {
 	switch {
@@ -321,6 +434,8 @@ func (h *Handler) apiFailed(w http.ResponseWriter, err error, what string, a api
 		return false
 	case errors.Is(err, attendance.ErrNotTeamMember):
 		apiError(w, http.StatusForbidden, "You're not a member of this team.")
+	case errors.Is(err, attendance.ErrNotAdmin):
+		apiError(w, http.StatusForbidden, "Only admins of this team can see this.")
 	default:
 		h.Log.Error("api failed", "what", what, "user_id", a.userID, "team_id", a.teamID, "err", err)
 		apiError(w, http.StatusInternalServerError, "Something went wrong. Please try again.")

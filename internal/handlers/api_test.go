@@ -60,6 +60,31 @@ func (f *fakePanel) PanelCancelWFH(_ context.Context, userID, teamID string, id 
 func (f *fakePanel) PanelSettings(_ context.Context, userID, teamID string) (attendance.SettingsState, error) {
 	return attendance.SettingsState{GitHubLogin: "vairabarath"}, f.err
 }
+func (f *fakePanel) AdminTeamDay(_ context.Context, adminID, teamID, day string) (attendance.TeamDay, error) {
+	f.gotUser, f.gotText = adminID, day
+	return attendance.TeamDay{Day: "2026-11-27", Working: 2}, f.err
+}
+func (f *fakePanel) AdminMember(_ context.Context, adminID, teamID, userID, day string) (attendance.MemberDetail, error) {
+	f.gotText = userID + "|" + day
+	return attendance.MemberDetail{UserID: userID}, f.err
+}
+func (f *fakePanel) AdminWFH(context.Context, string, string) (attendance.AdminWFHState, error) {
+	return attendance.AdminWFHState{Today: []string{"@kumar"}}, f.err
+}
+func (f *fakePanel) AdminDecideWFH(_ context.Context, adminID, teamID string, id int64, approve bool, note string) (attendance.DialogResult, error) {
+	f.gotID, f.gotHalf, f.gotText = id, approve, note
+	return f.submitRes, f.err
+}
+func (f *fakePanel) AdminReport(_ context.Context, adminID, teamID, rng string) (attendance.TeamReport, error) {
+	if rng != "week" && rng != "month" {
+		return attendance.TeamReport{}, attendance.ErrBadRange
+	}
+	return attendance.TeamReport{Range: rng}, f.err
+}
+func (f *fakePanel) AdminExport(_ context.Context, adminID, teamID, month string) (string, error) {
+	f.gotText = month
+	return "📎 sent", f.err
+}
 func (f *fakePanel) PanelPick(_ context.Context, userID, teamID, url string) (string, error) {
 	f.gotUser, f.gotTeam, f.gotAction, f.gotText = userID, teamID, "pick", url
 	return "▶️ picked", f.err
@@ -296,5 +321,65 @@ func TestAPIPages(t *testing.T) {
 	}
 	if rec, _ := apiCall(routes, "GET", "/api/v1/settings"+q, "", user, ""); rec.Code != 401 {
 		t.Errorf("settings without secret: %d", rec.Code)
+	}
+}
+
+func TestAPIAdmin(t *testing.T) {
+	h, _ := newHandler()
+	fp := &fakePanel{}
+	h.Panel, h.PluginSecret = fp, testSecret
+	routes := h.Routes()
+	q := "?team=" + teamA
+
+	if rec, out := apiCall(routes, "GET", "/api/v1/admin/today"+q+"&day=2026-11-27", testSecret, user, ""); rec.Code != 200 || out["working"] != float64(2) || fp.gotText != "2026-11-27" {
+		t.Errorf("today: %d %v", rec.Code, out)
+	}
+	if rec, _ := apiCall(routes, "GET", "/api/v1/admin/today"+q+"&day=27-11-2026", testSecret, user, ""); rec.Code != 400 {
+		t.Errorf("bad day: %d", rec.Code)
+	}
+	other := "oooooooooooooooooooooooooo"
+	if rec, _ := apiCall(routes, "GET", "/api/v1/admin/member"+q+"&user="+other, testSecret, user, ""); rec.Code != 200 || fp.gotText != other+"|" {
+		t.Errorf("member: %d %q", rec.Code, fp.gotText)
+	}
+	if rec, _ := apiCall(routes, "GET", "/api/v1/admin/member"+q+"&user=../x", testSecret, user, ""); rec.Code != 400 {
+		t.Errorf("bad user id: %d", rec.Code)
+	}
+	if rec, out := apiCall(routes, "GET", "/api/v1/admin/wfh"+q, testSecret, user, ""); rec.Code != 200 || out["today"] == nil {
+		t.Errorf("wfh: %d %v", rec.Code, out)
+	}
+	if rec, _ := apiCall(routes, "POST", "/api/v1/admin/wfh/5/decide"+q, testSecret, user, `{"approve":false,"note":"Client demo"}`); rec.Code != 200 || fp.gotID != 5 || fp.gotHalf || fp.gotText != "Client demo" {
+		t.Errorf("decide: %d %+v", rec.Code, fp)
+	}
+	fp.submitRes = attendance.DialogResult{Errors: map[string]string{"reason": "Please give a reason."}}
+	if rec, _ := apiCall(routes, "POST", "/api/v1/admin/wfh/5/decide"+q, testSecret, user, `{"approve":false}`); rec.Code != 422 {
+		t.Errorf("decide errors: %d", rec.Code)
+	}
+	fp.submitRes = attendance.DialogResult{}
+	if rec, _ := apiCall(routes, "POST", "/api/v1/admin/wfh/x/decide"+q, testSecret, user, `{}`); rec.Code != 400 {
+		t.Errorf("bad id: %d", rec.Code)
+	}
+	if rec, out := apiCall(routes, "GET", "/api/v1/admin/report"+q+"&range=month", testSecret, user, ""); rec.Code != 200 || out["range"] != "month" {
+		t.Errorf("report: %d %v", rec.Code, out)
+	}
+	if rec, _ := apiCall(routes, "GET", "/api/v1/admin/report"+q+"&range=year", testSecret, user, ""); rec.Code != 400 {
+		t.Errorf("bad range: %d", rec.Code)
+	}
+	if rec, out := apiCall(routes, "POST", "/api/v1/admin/export"+q, testSecret, user, `{"month":"2026-11"}`); rec.Code != 200 || out["message"] != "📎 sent" || fp.gotText != "2026-11" {
+		t.Errorf("export: %d %v", rec.Code, out)
+	}
+	if rec, _ := apiCall(routes, "POST", "/api/v1/admin/export"+q, testSecret, user, `{"month":"November"}`); rec.Code != 400 {
+		t.Errorf("bad month: %d", rec.Code)
+	}
+
+	// Members are refused with 403 on every admin endpoint.
+	fp.err = attendance.ErrNotAdmin
+	for _, c := range [][2]string{{"GET", "/api/v1/admin/today"}, {"GET", "/api/v1/admin/wfh"}, {"GET", "/api/v1/admin/report?range=week&team=" + teamA}} {
+		path := c[1]
+		if !strings.Contains(path, "team=") {
+			path += q
+		}
+		if rec, out := apiCall(routes, c[0], path, testSecret, user, ""); rec.Code != 403 || !strings.Contains(out["error"].(string), "Only admins") {
+			t.Errorf("%s as member: %d %v", path, rec.Code, out)
+		}
 	}
 }

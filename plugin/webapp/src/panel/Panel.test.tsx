@@ -111,6 +111,22 @@ test('home: the greeting capitalizes a lowercase name', async () => {
     expect(await screen.findByRole('heading', {name: /, Barath$/})).toBeInTheDocument();
 });
 
+test('home: the Team tile is only for admins', async () => {
+    mocked.fetchTeamDay.mockResolvedValue({team: {id: TEAM, name: 'B'}, day: '2026-11-27', day_label: 'Fri 27 Nov', members: [], working: 2, on_break: 1, out: 0, absent: 0, eod_sent: 1, eod_due: 3, wfh_pending: 1});
+    mocked.fetchMe.mockResolvedValue(me({is_admin: true}));
+    const r = renderPanel();
+    expect(await screen.findByText('3 in · 2 EOD missing · 1 WFH to decide')).toBeInTheDocument();
+    r.unmount();
+
+    mocked.fetchTeamDay.mockClear();
+    mocked.fetchMe.mockResolvedValue(me({is_admin: false}));
+    window.sessionStorage.setItem('attendance.page', 'team'); // a remembered page can't bypass it
+    renderPanel();
+    expect(await screen.findByLabelText('Status')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /^Team/})).not.toBeInTheDocument();
+    expect(mocked.fetchTeamDay).not.toHaveBeenCalled();
+});
+
 test('home: no Tasks tile where GitHub isn’t set up', async () => {
     mocked.fetchMe.mockResolvedValue(me({github_set_up: false}));
     renderPanel();

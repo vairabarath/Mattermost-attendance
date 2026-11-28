@@ -1,8 +1,8 @@
 // The panel's home screen: a greeting, the status bar with the main action,
 // and a tile per page with a live one-line summary.
 
-import {fetchHours, fetchTasks, fetchWFH} from 'api';
-import type {Hours, TasksState, WFHState} from 'api';
+import {fetchHours, fetchTasks, fetchTeamDay, fetchWFH} from 'api';
+import type {Hours, TasksState, TeamDay, WFHState} from 'api';
 import {hm} from 'format';
 import React, {useCallback, useEffect, useState} from 'react';
 
@@ -12,7 +12,7 @@ import {liveSeconds} from './session';
 import type {SessionProps} from './session';
 import StatusBar from './StatusBar';
 
-export type Page = 'home' | 'attendance' | 'tasks' | 'eod' | 'wfh' | 'hours' | 'settings';
+export type Page = 'home' | 'attendance' | 'tasks' | 'eod' | 'wfh' | 'hours' | 'settings' | 'team';
 
 // greeting: "Good morning" / "afternoon" / "evening" by the local hour.
 export function greeting(hour: number): string {
@@ -75,6 +75,8 @@ export default function Home(props: Props) {
     const tasks = useLoad<TasksState>(me.github_set_up ? tasksFetcher : null, ['tasks_changed']);
     const wfh = useLoad<WFHState>(wfhFetcher, ['wfh_changed']);
     const week = useLoad<Hours>(hoursFetcher, ['session_changed']);
+    const teamFetcher = useCallback(() => fetchTeamDay(teamId), [teamId]);
+    const team = useLoad<TeamDay>(me.is_admin ? teamFetcher : null, ['wfh_changed']);
 
     // First name, capitalized (usernames are often lowercase).
     const word = (me.display_name || '').trim().split(/\s+/)[0] ?? '';
@@ -128,6 +130,19 @@ export default function Home(props: Props) {
         hoursSummary = week.has_expected ? `${hm(week.all_seconds)} this week · ${Math.round((week.worked_until_yesterday / Math.max(1, week.expected_seconds)) * 100)}% of expected` : `${hm(week.all_seconds)} this week`;
     }
 
+    // Team tile (admins)
+    let teamSummary = '…';
+    if (team) {
+        const parts = [`${team.working + team.on_break} in`];
+        if (team.eod_due > team.eod_sent) {
+            parts.push(`${team.eod_due - team.eod_sent} EOD missing`);
+        }
+        if (team.wfh_pending) {
+            parts.push(`${team.wfh_pending} WFH to decide`);
+        }
+        teamSummary = parts.join(' · ');
+    }
+
     return (
         <div className='att-home'>
             <h2 className='att-greeting'>{`${greeting(new Date(now).getHours())}${first ? `, ${first}` : ''}`}</h2>
@@ -178,6 +193,15 @@ export default function Home(props: Props) {
                     summary={me.github_linked ? `GitHub ✓ ${me.github_login ?? ''}` : 'GitHub not linked'}
                     onOpen={() => onOpen('settings')}
                 />
+                {me.is_admin && (
+                    <Tile
+                        icon='👥'
+                        title='Team'
+                        summary={teamSummary}
+                        tone={team && (team.wfh_pending || team.eod_due > team.eod_sent) ? 'warn' : ''}
+                        onOpen={() => onOpen('team')}
+                    />
+                )}
             </div>
         </div>
     );

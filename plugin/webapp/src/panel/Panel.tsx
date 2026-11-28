@@ -20,6 +20,7 @@ import {ALL, requestRefresh, useRefresh} from './refresh';
 import SettingsPage from './SettingsPage';
 import StatusCard from './StatusCard';
 import Tasks from './Tasks';
+import TeamPage from './TeamPage';
 import WFHPage from './WFHPage';
 
 import './panel.css';
@@ -34,6 +35,7 @@ const TITLES: Record<Exclude<Page, 'home'>, string> = {
     wfh: '🏠 Work from home',
     hours: '📊 Hours',
     settings: '⚙️ My settings',
+    team: '👥 Team',
 };
 
 // The page survives closing and reopening the panel while Mattermost is open.
@@ -194,8 +196,12 @@ export default function Panel() {
         </>
     );
 
-    // Tasks only exist in teams with GitHub; fall back to Home elsewhere.
-    const current: Page = page === 'tasks' && !me.github_set_up ? 'home' : page;
+    // Tasks only exist in teams with GitHub, Team only for admins (the bot
+    // refuses members anyway): fall back to Home otherwise.
+    let current: Page = page;
+    if ((page === 'tasks' && !me.github_set_up) || (page === 'team' && !me.is_admin)) {
+        current = 'home';
+    }
 
     let body: React.ReactNode;
     switch (current) {
@@ -236,6 +242,9 @@ export default function Panel() {
         break;
     case 'settings':
         body = <SettingsPage teamId={me.team.id}/>;
+        break;
+    case 'team':
+        body = <TeamPage teamId={me.team.id}/>;
         break;
     default:
         body = (

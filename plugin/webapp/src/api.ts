@@ -203,3 +203,85 @@ export type Settings = {
 };
 
 export const fetchSettings = (teamId: string) => doFetch<Settings>(`/settings${teamQuery(teamId)}`);
+
+// --- Admin (team admins only; the bot checks) ---
+
+export type TeamMemberDay = {
+    user_id: string;
+    username: string;
+    display_name?: string;
+    state: 'working' | 'break' | 'out' | 'absent' | 'elsewhere' | string;
+    elsewhere?: string;
+    since?: string;
+    mode?: string;
+    seconds: number;
+    eod: 'sent' | 'missing' | 'waiting' | 'none' | string;
+    done: number;
+    blocked: number;
+    sync?: string;
+    tracked: boolean;
+};
+
+export type TeamDay = {
+    team: TeamRef;
+    day: string;
+    day_label: string;
+    members: TeamMemberDay[];
+    working: number;
+    on_break: number;
+    out: number;
+    absent: number;
+    eod_sent: number;
+    eod_due: number;
+    wfh_pending: number;
+};
+
+export type MemberDetail = {
+    user_id: string;
+    username: string;
+    day: string;
+    day_label: string;
+    worked: boolean;
+    report?: string;
+    submitted_at?: string;
+    sync_line?: string;
+    tasks?: TasksState;
+};
+
+export type AdminWFHItem = {
+    id: number;
+    username: string;
+    dates: string;
+    half_day: boolean;
+    reason: string;
+    status: string;
+    decided_by?: string;
+    note?: string;
+    urgent: boolean;
+    used_month?: string;
+};
+export type AdminWFH = {pending: AdminWFHItem[]; recent: AdminWFHItem[]; today: string[]};
+
+export type TeamReportRow = {
+    username: string;
+    days: number;
+    team_seconds: number;
+    all_seconds: number;
+    expected_seconds: number;
+    has_expected: boolean;
+    short: boolean;
+    wfh_days: number;
+    auto_closed: number;
+};
+export type TeamReport = {range: 'week' | 'month'; label: string; rows: TeamReportRow[]};
+
+export const fetchTeamDay = (teamId: string) => doFetch<TeamDay>(`/admin/today${teamQuery(teamId)}`);
+export const fetchMember = (teamId: string, userId: string) =>
+    doFetch<MemberDetail>(`/admin/member${teamQuery(teamId)}&user=${encodeURIComponent(userId)}`);
+export const fetchAdminWFH = (teamId: string) => doFetch<AdminWFH>(`/admin/wfh${teamQuery(teamId)}`);
+export const decideWFH = async (teamId: string, id: number, approve: boolean, note = '') =>
+    (await postForm<{wfh: AdminWFH}>(`/admin/wfh/${id}/decide${teamQuery(teamId)}`, {approve, note})).wfh;
+export const fetchTeamReport = (teamId: string, range: 'week' | 'month') =>
+    doFetch<TeamReport>(`/admin/report${teamQuery(teamId)}&range=${range}`);
+export const exportCSV = (teamId: string, month = '') =>
+    doFetch<{message: string}>(`/admin/export${teamQuery(teamId)}`, {method: 'post', body: JSON.stringify({month})});
