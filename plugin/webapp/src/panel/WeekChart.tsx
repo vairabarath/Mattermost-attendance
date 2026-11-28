@@ -38,6 +38,17 @@ export function niceMax(days: HoursDay[], perDayHours: number): number {
     return Math.ceil(top / 3600) * 3600;
 }
 
+// tipPosition anchors the tooltip at the day's column edge, growing towards
+// the middle of the chart.
+export function tipPosition(i: number, n: number): React.CSSProperties {
+    if (i < n / 2) {
+        const left = (i / n) * 100;
+        return {left: `${left}%`, maxWidth: `${100 - left}%`};
+    }
+    const right = ((n - 1 - i) / n) * 100;
+    return {right: `${right}%`, maxWidth: `${100 - right}%`};
+}
+
 export default function WeekChart({data}: {data: Hours}) {
     const [active, setActive] = useState<number | null>(null);
     const cols = useRef<Array<HTMLDivElement | null>>([]);
@@ -126,15 +137,19 @@ export default function WeekChart({data}: {data: Hours}) {
                                     style={{height: pct(d.seconds)}}
                                 />
                             )}
-                            {active === i && (
-                                <span
-                                    className={`att-chart-tip${i >= days.length - 2 ? ' is-right' : ''}${i <= 1 ? ' is-left' : ''}`}
-                                    role='tooltip'
-                                >{describe(d)}</span>
-                            )}
                         </div>
                     ))}
                 </div>
+                {active !== null && days[active] && (
+
+                    // Anchored to the plot: from the day's column inward, so
+                    // a long text wraps instead of leaving the panel.
+                    <span
+                        className='att-chart-tip'
+                        role='tooltip'
+                        style={tipPosition(active, days.length)}
+                    >{describe(days[active])}</span>
+                )}
             </div>
             <div
                 className='att-chart-axis'

@@ -431,14 +431,12 @@ input.att-input { min-height: 0; height: 32px; }
 }
 .att-chart-tip {
     /* Above the plot, in the chart's own top padding: covers no bar. */
-    position: absolute; top: -28px; left: 50%; transform: translateX(-50%); z-index: 5;
-    padding: 4px 8px; border-radius: 4px; white-space: nowrap; pointer-events: none;
+    position: absolute; bottom: calc(100% + 4px); z-index: 5; width: max-content; box-sizing: border-box;
+    padding: 4px 8px; border-radius: 4px; pointer-events: none;
     font-size: 12px; line-height: 16px;
     background: var(--center-channel-color); color: var(--center-channel-bg);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
 }
-.att-chart-tip.is-left { left: 0; transform: none; }
-.att-chart-tip.is-right { left: auto; right: 0; transform: none; }
 .att-chart-axis { display: flex; gap: 2px; margin-left: 28px; }
 .att-chart-axis span { flex: 1; text-align: center; font-size: 11px; color: rgba(var(--center-channel-color-rgb), 0.76); }
 .att-chart-axis span.is-off { color: rgba(var(--center-channel-color-rgb), 0.76); }

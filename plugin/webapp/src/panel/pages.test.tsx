@@ -6,6 +6,7 @@ import React from 'react';
 
 import HoursPage from './HoursPage';
 import SettingsPage from './SettingsPage';
+import {tipPosition} from './WeekChart';
 import WFHPage from './WFHPage';
 
 jest.mock('api', () => ({
@@ -193,4 +194,12 @@ test('a page that fails to load says why, and Try again reloads it', async () =>
     await userEvent.click(screen.getByRole('button', {name: 'Try again'}));
     expect(await screen.findByRole('figure')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test('week chart tooltip stays inside the chart: anchored at the column, growing inward', () => {
+    expect(tipPosition(0, 7)).toEqual({left: '0%', maxWidth: '100%'});
+    expect(tipPosition(6, 7)).toEqual({right: '0%', maxWidth: '100%'});
+    const sat = tipPosition(5, 7);
+    expect(sat.right).toMatch(/^14\.28/);
+    expect(parseFloat(String(sat.maxWidth))).toBeCloseTo(85.71, 1);
 });
